@@ -7,6 +7,7 @@ import { IMarkdownString, MarkdownString } from '../../../../../base/common/html
 import { localize } from '../../../../../nls.js';
 import { ChatEntitlement, IChatEntitlementService } from '../../../../services/chat/common/chatEntitlementService.js';
 import { IChatSessionsService, SessionType } from '../../common/chatSessionsService.js';
+import { INTEGRITY_SIGN_IN_COMMAND_ID } from '../../common/integritySignIn.js';
 import { ILanguageModelsService } from '../../common/languageModels.js';
 
 /**
@@ -147,8 +148,8 @@ export function getSessionTypeUnavailableDescription(availability: SessionTypeAv
 	switch (availability) {
 		case SessionTypeAvailability.SignInRequired:
 			return new MarkdownString(
-				localize('chat.sessionType.signInLink', "[Sign in](command:workbench.action.chat.triggerSetup)"),
-				{ isTrusted: { enabledCommands: ['workbench.action.chat.triggerSetup'] } }
+				localize('chat.sessionType.signInLink', "[Sign in](command:{0})", INTEGRITY_SIGN_IN_COMMAND_ID),
+				{ isTrusted: { enabledCommands: [INTEGRITY_SIGN_IN_COMMAND_ID] } }
 			);
 		case SessionTypeAvailability.UpgradeRequired:
 			return new MarkdownString(
@@ -170,8 +171,8 @@ export function getSessionTypeUnavailableDescription(availability: SessionTypeAv
 export function getSessionTypeUnavailableHover(availability: SessionTypeAvailability): IMarkdownString | undefined {
 	switch (availability) {
 		case SessionTypeAvailability.SignInRequired: {
-			const hover = new MarkdownString('', { isTrusted: { enabledCommands: ['workbench.action.chat.triggerSetup'] }, supportThemeIcons: true });
-			hover.appendMarkdown(localize('chat.sessionType.signInHover', "[Sign in to GitHub Copilot](command:workbench.action.chat.triggerSetup) to use this agent."));
+			const hover = new MarkdownString('', { isTrusted: { enabledCommands: [INTEGRITY_SIGN_IN_COMMAND_ID] }, supportThemeIcons: true });
+			hover.appendMarkdown(localize('chat.sessionType.signInHover', "[Sign in to Integrity](command:{0}) to use this agent.", INTEGRITY_SIGN_IN_COMMAND_ID));
 			return hover;
 		}
 		case SessionTypeAvailability.UpgradeRequired: {

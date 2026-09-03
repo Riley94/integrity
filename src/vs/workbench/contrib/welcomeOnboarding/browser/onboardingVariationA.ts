@@ -23,7 +23,6 @@ import { renderIcon } from '../../../../base/browser/ui/iconLabel/iconLabels.js'
 import { Action } from '../../../../base/common/actions.js';
 import { IWorkbenchThemeService } from '../../../services/themes/common/workbenchThemeService.js';
 import { EXTENSION_INSTALL_SKIP_WALKTHROUGH_CONTEXT, IExtensionGalleryService, IExtensionManagementService } from '../../../../platform/extensionManagement/common/extensionManagement.js';
-import { GitHubPaths, IDefaultAccountService } from '../../../../platform/defaultAccount/common/defaultAccount.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
 import { ConfigurationTarget, IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
@@ -33,6 +32,7 @@ import { IFileService } from '../../../../platform/files/common/files.js';
 import { IPathService } from '../../../services/path/common/pathService.js';
 import { ITelemetryService } from '../../../../platform/telemetry/common/telemetry.js';
 import { InstallChatEvent, InstallChatClassification, ChatSetupStrategy } from '../../chat/browser/chatSetup/chatSetup.js';
+import { INTEGRITY_SIGN_IN_COMMAND_ID } from '../../chat/common/integritySignIn.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IAccessibilityService } from '../../../../platform/accessibility/common/accessibility.js';
 import {
@@ -43,7 +43,6 @@ import {
 	IOnboardingThemeOption,
 	getOnboardingStepTitle,
 	getOnboardingStepSubtitle,
-	GHE_FULL_URI_REGEX,
 	GheParseResultKind,
 	parseGheInstanceInput,
 } from '../common/onboardingTypes.js';
@@ -88,7 +87,7 @@ const defaultChat = product.defaultChatAgent;
  * tab. When dismissed, the welcome tab is revealed underneath.
  *
  * Steps:
- * 1. Sign In — sessions-style sign-in hero with GitHub Copilot, Google, and Apple options
+ * 1. Sign In — Integrity account placeholder (accounts are not available yet)
  * 2. Personalize — Theme selection grid + keymap pills
  */
 export class OnboardingVariationA extends Disposable implements IOnboardingService {
@@ -136,7 +135,6 @@ export class OnboardingVariationA extends Disposable implements IOnboardingServi
 	constructor(
 		@ILayoutService private readonly layoutService: ILayoutService,
 		@IWorkbenchThemeService private readonly themeService: IWorkbenchThemeService,
-		@IDefaultAccountService private readonly defaultAccountService: IDefaultAccountService,
 		@IExtensionGalleryService private readonly extensionGalleryService: IExtensionGalleryService,
 		@IExtensionManagementService private readonly extensionManagementService: IExtensionManagementService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
@@ -450,7 +448,7 @@ export class OnboardingVariationA extends Disposable implements IOnboardingServi
 				if (!this._footerSignInBtn && !this._userSignedIn) {
 					this._footerSignInBtn = append(this.footerLeft, $<HTMLButtonElement>('button.onboarding-a-signin-nudge-btn'));
 					this._footerSignInBtn.type = 'button';
-					this._footerSignInBtn.textContent = localize('onboarding.sessions.signInNudge', "Sign in to use GitHub Copilot");
+					this._footerSignInBtn.textContent = localize('onboarding.sessions.signInNudge', "Sign in to Integrity");
 					this.stepDisposables.add(addDisposableListener(this._footerSignInBtn, EventType.CLICK, async () => {
 						this._logAction('signInNudge');
 						await this._handleSignIn();
@@ -482,10 +480,10 @@ export class OnboardingVariationA extends Disposable implements IOnboardingServi
 		const content = append(wrapper, $('.onboarding-a-signin-content'));
 		const contentMain = append(content, $('.onboarding-a-signin-content-main'));
 		const title = append(contentMain, $('h2.onboarding-a-signin-title'));
-		title.textContent = localize('onboarding.signIn.heroTitle', "Welcome to VS Code");
+		title.textContent = localize('onboarding.signIn.heroTitle', "Welcome to {0}", product.nameLong);
 
 		const subtitle = append(contentMain, $('p.onboarding-a-signin-subtitle'));
-		subtitle.textContent = localize('onboarding.signIn.heroSubtitle', "Sign in to use GitHub Copilot.");
+		subtitle.textContent = localize('onboarding.signIn.heroSubtitle', "Integrity accounts are coming soon. Until then, Integrity AI runs locally.");
 
 		const actions = append(contentMain, $('.onboarding-a-signin-actions'));
 
@@ -514,59 +512,22 @@ export class OnboardingVariationA extends Disposable implements IOnboardingServi
 
 		const disclaimerCol = append(footer, $('.onboarding-a-signin-disclaimer-col'));
 
-		// GitHub Copilot disclaimer
+		// Integrity account placeholder
 		const copilotDisclaimer = append(disclaimerCol, $('.onboarding-a-signin-disclaimer'));
-		copilotDisclaimer.append(localize('onboarding.signIn.disclaimer.prefix', "By signing in, you agree to {0}'s ", defaultChat.provider.default.name));
-		this._createInlineLink(copilotDisclaimer, localize('onboarding.signIn.disclaimer.terms', "Terms"), defaultChat.termsStatementUrl);
-		copilotDisclaimer.append(localize('onboarding.signIn.disclaimer.middle', " and "));
+		copilotDisclaimer.append(localize('onboarding.signIn.disclaimer.integrity', "Integrity AI runs locally with Ollama by default. Cloud fallback only happens when you enable it and add your own API keys. See our "));
 		this._createInlineLink(copilotDisclaimer, localize('onboarding.signIn.disclaimer.privacy', "Privacy Statement"), defaultChat.privacyStatementUrl);
-		copilotDisclaimer.append(localize('onboarding.signIn.disclaimer.copilotPrefix', ". {0} Copilot may show ", defaultChat.provider.default.name));
-		this._createInlineLink(copilotDisclaimer, localize('onboarding.signIn.disclaimer.publicCode', "public code"), defaultChat.publicCodeMatchesUrl);
-		copilotDisclaimer.append(localize('onboarding.signIn.disclaimer.improveSuffix', " suggestions and use your data to improve the product."));
-		copilotDisclaimer.append(' ');
-		copilotDisclaimer.append(localize('onboarding.signIn.disclaimer.settingsPrefix', "You can change these "));
-		this._createInlineLink(copilotDisclaimer, localize('onboarding.signIn.disclaimer.settings', "settings"), this.defaultAccountService.resolveGitHubUrl(GitHubPaths.copilotSettings));
-		copilotDisclaimer.append(localize('onboarding.signIn.disclaimer.suffix', " anytime."));
+		copilotDisclaimer.append(localize('onboarding.signIn.disclaimer.integritySuffix', "."));
 	}
 
 	private _renderDefaultSignInActions(actions: HTMLElement): void {
-		const githubBtn = this._registerStepFocusable(this._createSignInButton(actions, 'github', localize('onboarding.signIn.github', "Continue with GitHub"), {
+		const integrityBtn = this._registerStepFocusable(this._createSignInButton(actions, 'integrity', localize('onboarding.signIn.integrity', "Sign in to Integrity"), {
 			emphasized: true,
-			label: localize('onboarding.signIn.github.aria', "Continue with GitHub")
+			label: localize('onboarding.signIn.integrity.aria', "Sign in to Integrity")
 		}));
-		this.stepDisposables.add(addDisposableListener(githubBtn, EventType.CLICK, () => {
-			this._logAction('signIn', undefined, 'github');
+		this.stepDisposables.add(addDisposableListener(integrityBtn, EventType.CLICK, () => {
+			this._logAction('signIn', undefined, 'integrity');
 			this._handleSignIn();
 		}));
-
-		const googleBtn = this._registerStepFocusable(this._createSignInButton(actions, 'google', localize('onboarding.signIn.google', "Continue with Google"), {
-			iconOnly: true,
-			label: localize('onboarding.signIn.google', "Continue with Google")
-		}));
-		this.stepDisposables.add(addDisposableListener(googleBtn, EventType.CLICK, () => {
-			this._logAction('signIn', undefined, 'google');
-			this._handleSignIn('google');
-		}));
-
-		const appleBtn = this._registerStepFocusable(this._createSignInButton(actions, 'apple', localize('onboarding.signIn.apple', "Continue with Apple"), {
-			iconOnly: true,
-			label: localize('onboarding.signIn.apple', "Continue with Apple")
-		}));
-		this.stepDisposables.add(addDisposableListener(appleBtn, EventType.CLICK, () => {
-			this._logAction('signIn', undefined, 'apple');
-			this._handleSignIn('apple');
-		}));
-
-		if (defaultChat.provider.enterprise) {
-			const gheBtn = this._registerStepFocusable(this._createSignInButton(actions, 'github-enterprise', localize('onboarding.signIn.ghe', "GHE"), {
-				textOnly: true,
-				label: localize('onboarding.signIn.ghe.aria', "Continue with GitHub Enterprise")
-			}));
-			this.stepDisposables.add(addDisposableListener(gheBtn, EventType.CLICK, () => {
-				this._logAction('signIn', undefined, 'github-enterprise');
-				void this._handleEnterpriseSignIn();
-			}));
-		}
 	}
 
 	private static readonly GHE_INPUT_ACTION_PADDING = 28;
@@ -681,7 +642,7 @@ export class OnboardingVariationA extends Disposable implements IOnboardingServi
 		}
 	}
 
-	private _createSignInButton(parent: HTMLElement, providerClass: 'github' | 'github-enterprise' | 'google' | 'apple', label: string, options?: { emphasized?: boolean; iconOnly?: boolean; textOnly?: boolean; label?: string }): HTMLButtonElement {
+	private _createSignInButton(parent: HTMLElement, providerClass: 'github' | 'github-enterprise' | 'google' | 'apple' | 'integrity', label: string, options?: { emphasized?: boolean; iconOnly?: boolean; textOnly?: boolean; label?: string }): HTMLButtonElement {
 		const isCompact = options?.iconOnly || options?.textOnly;
 		const btn = append(parent, $<HTMLButtonElement>(isCompact ? 'button.onboarding-a-signin-icon-btn' : 'button.onboarding-a-signin-btn'));
 		btn.type = 'button';
@@ -697,6 +658,8 @@ export class OnboardingVariationA extends Disposable implements IOnboardingServi
 			mark.setAttribute('aria-hidden', 'true');
 			if (providerClass === 'github' || providerClass === 'github-enterprise') {
 				mark.appendChild(renderIcon(Codicon.github));
+			} else if (providerClass === 'integrity') {
+				mark.appendChild(renderIcon(Codicon.shield));
 			}
 		}
 
@@ -708,52 +671,8 @@ export class OnboardingVariationA extends Disposable implements IOnboardingServi
 		return btn;
 	}
 
-	private async _handleSignIn(socialProvider?: string): Promise<void> {
-		const provider = socialProvider ?? 'github';
-		const watch = StopWatch.create();
-		try {
-			const account = await this.defaultAccountService.signIn({
-				extraAuthorizeParameters: { get_started_with: 'copilot-vscode' },
-				provider: socialProvider,
-			});
-			if (account) {
-				this._userSignedIn = true;
-				this.telemetryService.publicLog2<InstallChatEvent, InstallChatClassification>('commandCenter.chatInstall', { installResult: 'installed', installDuration: watch.elapsed(), signUpErrorCode: undefined, provider });
-				// Run chat setup in the background (sign-up, extension install, entitlement resolution)
-				this.commandService.executeCommand('workbench.action.chat.triggerSetup', undefined, {
-					disableChatViewReveal: true,
-					setupStrategy: ChatSetupStrategy.DefaultSetup,
-				});
-				this._nextStep();
-			}
-		} catch (error) {
-			if (isCancellationError(error)) {
-				this.telemetryService.publicLog2<InstallChatEvent, InstallChatClassification>('commandCenter.chatInstall', { installResult: 'cancelled', installDuration: watch.elapsed(), signUpErrorCode: undefined, provider });
-				return;
-			}
-
-			this.telemetryService.publicLog2<InstallChatEvent, InstallChatClassification>('commandCenter.chatInstall', { installResult: 'failedNotSignedIn', installDuration: watch.elapsed(), signUpErrorCode: undefined, provider });
-			this.notificationService.notify({
-				severity: Severity.Error,
-				message: localize('onboarding.signIn.error', "Sign-in failed. You can try again later from the Accounts menu."),
-			});
-		}
-	}
-
-	private async _handleEnterpriseSignIn(): Promise<void> {
-		if (!defaultChat.provider.enterprise) {
-			return;
-		}
-		const existingUri = this.configurationService.getValue<string>(defaultChat.providerUriSetting);
-		if (typeof existingUri !== 'string' || !GHE_FULL_URI_REGEX.test(existingUri)) {
-			this.enterpriseInstanceValue = existingUri ?? '';
-			this.enterpriseSignInWatch = StopWatch.create();
-			this._setEnterpriseSignInUiState('instance');
-			return;
-		}
-
-		this.enterpriseInstanceValue = existingUri;
-		await this._runEnterpriseSignInSetup();
+	private async _handleSignIn(_socialProvider?: string): Promise<void> {
+		await this.commandService.executeCommand(INTEGRITY_SIGN_IN_COMMAND_ID);
 	}
 
 	private async _submitEnterpriseInstance(resolvedUri: string): Promise<void> {

@@ -54,8 +54,8 @@ import { fromNow, safeIntl } from '../../../../base/common/date.js';
 import { language } from '../../../../base/common/platform.js';
 import { AgentHostCodexAgentEnabledSettingId } from '../../../../platform/agentHost/common/agentService.js';
 import { ChatAIDisabledSettingId } from '../../../../platform/chat/common/chatSettings.js';
-import { CHAT_SETUP_ACTION_ID } from '../../../../workbench/contrib/chat/browser/actions/chatActions.js';
 import { AGENTIC_SIGN_IN_COMMAND_ID } from '../../../common/sessionCommands.js';
+import { showIntegritySignInComingSoon, integritySignInActionTitle } from '../../../../workbench/contrib/chat/common/integritySignIn.js';
 import { SessionsChatPetAchievementBadges } from './chatPetAchievementBadges.js';
 import { CHAT_PET_OPEN_ACHIEVEMENTS_COMMAND_ID } from '../../../../workbench/contrib/chat/browser/chatPetAchievements.js';
 
@@ -90,7 +90,7 @@ registerAction2(class extends Action2 {
 	constructor() {
 		super({
 			id: AGENTIC_SIGN_IN_COMMAND_ID,
-			title: localize2('signIn', "Sign in to use GitHub Copilot"),
+			title: integritySignInActionTitle,
 			icon: Codicon.signIn,
 			menu: {
 				id: AccountMenu,
@@ -101,7 +101,7 @@ registerAction2(class extends Action2 {
 		});
 	}
 	async run(accessor: ServicesAccessor): Promise<void> {
-		await accessor.get(ICommandService).executeCommand(CHAT_SETUP_ACTION_ID);
+		await showIntegritySignInComingSoon(accessor.get(IDialogService));
 	}
 });
 

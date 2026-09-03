@@ -1417,7 +1417,7 @@ suite('resolveAuthenticationInteractively', () => {
 				args: [undefined, {
 					forceSignInDialog: true,
 					additionalScopes: ['read'],
-					dialogTitle: 'Sign in to use GitHub Copilot',
+					dialogTitle: 'Sign in to Integrity',
 					disableChatViewReveal: true,
 					returnResult: true,
 				}],

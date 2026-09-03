@@ -34,6 +34,7 @@ import { ChatEntitlement, ChatEntitlementContext, ChatEntitlementService, IChatE
 import { IChatWidgetService } from '../chat.js';
 import { ChatSetupController } from './chatSetupController.js';
 import { IChatSetupResult, ChatSetupAnonymous, ChatSetupDialogVisibleContext, ChatSetupError, InstallChatEvent, InstallChatClassification, ChatSetupStrategy, ChatSetupResultValue, IChatSetupRunOptions } from './chatSetup.js';
+import { integritySignInComingSoonDismiss, integritySignInComingSoonTitle } from '../../common/integritySignIn.js';
 import { GitHubPaths, IDefaultAccountService } from '../../../../../platform/defaultAccount/common/defaultAccount.js';
 import { IHostService } from '../../../../services/host/browser/host.js';
 import { IExtensionService } from '../../../../services/extensions/common/extensions.js';
@@ -222,25 +223,11 @@ export function shouldShowMicrosoftProvider(configurationService: IConfiguration
 	return configurationService.getValue<boolean>(ChatMicrosoftAuthenticationEnabledSettingId) === true;
 }
 
-export function getChatSetupDialogButtons(entitlement: ChatEntitlement, options: IChatSetupRunOptions | undefined, enterpriseAuthentication: boolean, showMicrosoftProvider: boolean, providers: IChatSetupDialogProviders = defaultChat.provider): IChatSetupDialogButton[] {
+export function getChatSetupDialogButtons(entitlement: ChatEntitlement, options: IChatSetupRunOptions | undefined, _enterpriseAuthentication: boolean, _showMicrosoftProvider: boolean, _providers: IChatSetupDialogProviders = defaultChat.provider): IChatSetupDialogButton[] {
 	const button = (label: string, strategy: ChatSetupStrategy, ...classes: string[]): IChatSetupDialogButton => ({ label, strategy, classes });
 
 	if (!options?.forceAnonymous && (entitlement === ChatEntitlement.Unknown || options?.forceSignInDialog)) {
-		const defaultProviderButton = button(localize('continueWith', "Continue with {0}", providers.default.name), ChatSetupStrategy.SetupWithoutEnterpriseProvider, 'continue-button', 'default');
-		const defaultProviderLink = button(defaultProviderButton.label, defaultProviderButton.strategy, 'link-button');
-		const enterpriseProviderButton = button(localize('continueWith', "Continue with {0}", providers.enterprise.name), ChatSetupStrategy.SetupWithEnterpriseProvider, 'continue-button', 'default');
-		const enterpriseProviderLink = button(enterpriseProviderButton.label, enterpriseProviderButton.strategy, 'link-button');
-		const googleProviderButton = button(localize('continueWith', "Continue with {0}", providers.google.name), ChatSetupStrategy.SetupWithGoogleProvider, 'continue-button', 'google');
-		const appleProviderButton = button(localize('continueWith', "Continue with {0}", providers.apple.name), ChatSetupStrategy.SetupWithAppleProvider, 'continue-button', 'apple');
-		const microsoftProviderButton = button(localize('continueWith', "Continue with {0}", providers.microsoft.name), ChatSetupStrategy.SetupWithMicrosoftProvider, 'continue-button', 'microsoft');
-
-		const socialProviderButtons = [googleProviderButton, appleProviderButton, ...(showMicrosoftProvider ? [microsoftProviderButton] : [])];
-		const providerButtons = enterpriseAuthentication
-			? [enterpriseProviderButton, ...socialProviderButtons, defaultProviderLink]
-			: [defaultProviderButton, ...socialProviderButtons, enterpriseProviderLink];
-		return options?.allowContinueWithoutSignIn
-			? [...providerButtons, button(localize('continueWithoutSigningIn', "Continue Without Signing In"), ChatSetupStrategy.Canceled, 'link-button')]
-			: providerButtons;
+		return [button(integritySignInComingSoonDismiss, ChatSetupStrategy.Canceled, 'continue-button', 'default')];
 	}
 
 	return [button(localize('setupAIButton', "Use AI Features"), ChatSetupStrategy.DefaultSetup)];
@@ -249,7 +236,7 @@ export function getChatSetupDialogButtons(entitlement: ChatEntitlement, options:
 export function getChatSetupDialogFooter(
 	forceAnonymous: ChatSetupAnonymous | undefined,
 	telemetryLevel: TelemetryLevel,
-	settingsUrl: string,
+	_settingsUrl: string,
 	content: IChatSetupDialogFooterContent = {
 		providerName: defaultChat.provider.default.name,
 		termsStatementUrl: defaultChat.termsStatementUrl,
@@ -261,7 +248,7 @@ export function getChatSetupDialogFooter(
 		return localize({ key: 'settingsAnonymous', comment: ['{Locked="["}', '{Locked="]({1})"}', '{Locked="]({2})"}'] }, "By continuing, you agree to {0}'s [Terms]({1}) and [Privacy Statement]({2}).", content.providerName, content.termsStatementUrl, content.privacyStatementUrl);
 	}
 
-	return localize({ key: 'settings', comment: ['{Locked="["}', '{Locked="]({1})"}', '{Locked="]({2})"}', '{Locked="]({4})"}', '{Locked="]({5})"}'] }, "By continuing, you agree to {0}'s [Terms]({1}) and [Privacy Statement]({2}). {3} Copilot may show [public code]({4}) suggestions and use your data to improve the product. You can change these [settings]({5}) anytime.", content.providerName, content.termsStatementUrl, content.privacyStatementUrl, content.providerName, content.publicCodeMatchesUrl, settingsUrl);
+	return localize({ key: 'settingsIntegrity', comment: ['{Locked="["}', '{Locked="]({1})"}', '{Locked="]({2})"}'] }, "By continuing, you agree to {0}'s [Terms]({1}) and [Privacy Statement]({2}). Integrity AI runs locally by default. Cloud fallback only happens when you enable it and add your own API keys.", content.providerName, content.termsStatementUrl, content.privacyStatementUrl);
 }
 
 export class ChatSetup {
@@ -497,7 +484,7 @@ export class ChatSetup {
 		}
 
 		if (this.context.state.entitlement === ChatEntitlement.Unknown || options?.forceSignInDialog) {
-			return localize('signIn', "Sign in to use GitHub Copilot");
+			return integritySignInComingSoonTitle;
 		}
 
 		return localize('startUsing', "Start using AI Features");

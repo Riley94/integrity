@@ -19,6 +19,7 @@ import { FileAccess } from '../../../../base/common/network.js';
 import { EXTENSION_INSTALL_DEP_PACK_CONTEXT, EXTENSION_INSTALL_SKIP_WALKTHROUGH_CONTEXT, IExtensionManagementService } from '../../../../platform/extensionManagement/common/extensionManagement.js';
 import { ThemeIcon } from '../../../../base/common/themables.js';
 import { walkthroughs } from '../common/gettingStartedContent.js';
+import { isGitHubCopilotWalkthroughExtension } from '../common/githubCopilotWalkthrough.js';
 import { IWorkbenchAssignmentService } from '../../../services/assignment/common/assignmentService.js';
 import { IHostService } from '../../../services/host/browser/host.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
@@ -313,6 +314,10 @@ export class WalkthroughsService extends Disposable implements IWalkthroughsServ
 		};
 
 		if (!(extension.contributes?.walkthroughs?.length)) {
+			return;
+		}
+
+		if (isGitHubCopilotWalkthroughExtension(extension.identifier.value)) {
 			return;
 		}
 

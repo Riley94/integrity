@@ -34,7 +34,7 @@ import { IModelControlEntry, ILanguageModelChatMetadataAndIdentifier, ILanguageM
 import { getLanguageModelDisplayNameWithSubscriptionSource } from '../../../../common/languageModelSourcePresentation.js';
 import { IChatEntitlementService } from '../../../../../../services/chat/common/chatEntitlementService.js';
 import { IModelPickerDelegate } from './modelPickerActionItem.js';
-import { CHAT_SETUP_ACTION_ID } from '../../../actions/chatActions.js';
+import { INTEGRITY_SIGN_IN_COMMAND_ID } from '../../../../common/integritySignIn.js';
 import { IUriIdentityService } from '../../../../../../../platform/uriIdentity/common/uriIdentity.js';
 import { GitHubPaths, IDefaultAccountService } from '../../../../../../../platform/defaultAccount/common/defaultAccount.js';
 import { IUpdateService } from '../../../../../../../platform/update/common/update.js';
@@ -327,7 +327,7 @@ export class ModelPickerWidget extends Disposable {
 	 * refreshes the picker.
 	 */
 	private _requestSetup(): void {
-		this._commandService.executeCommand(CHAT_SETUP_ACTION_ID);
+		this._commandService.executeCommand(INTEGRITY_SIGN_IN_COMMAND_ID);
 	}
 
 	render(container: HTMLElement): void {
