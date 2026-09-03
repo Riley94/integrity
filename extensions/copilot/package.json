@@ -7057,7 +7057,7 @@
     "zod": "3.25.76"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.82.0",
+    "@anthropic-ai/sdk": "^0.93.0",
     "@github/blackbird-external-ingest-utils": "^0.3.0",
     "@github/copilot": "^1.0.73",
     "@google/genai": "1.30.0",

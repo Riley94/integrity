@@ -100,7 +100,7 @@
     "install-latest-component-explorer": "npm install @vscode/component-explorer@next @vscode/component-explorer-cli@next && cd build/rspack && npm install @vscode/component-explorer-webpack-plugin@next @vscode/component-explorer@next && cd ../vite && npm install @vscode/component-explorer-vite-plugin@next @vscode/component-explorer@next"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.82.0",
+    "@anthropic-ai/sdk": "^0.93.0",
     "@devcontainers/cli": "0.88.0",
     "@github/copilot": "1.0.83-2",
     "@github/copilot-sdk": "1.0.13-preview.4",
@@ -284,7 +284,15 @@
       "node-addon-api": "7.1.0"
     },
     "serialize-javascript": "^7.0.3",
-    "yauzl": "^3.3.1"
+    "yauzl": "^3.3.1",
+    "@humanfs/node": "0.16.8",
+    "@xmldom/xmldom": "0.8.15",
+    "adm-zip": "0.6.0",
+    "braces": "3.0.3",
+    "browserslist": "4.28.7",
+    "decode-uri-component": "0.5.0",
+    "fast-uri": "3.1.6",
+    "qs": "6.16.0"
   },
   "repository": {
     "type": "git",
