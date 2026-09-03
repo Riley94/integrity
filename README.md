@@ -24,7 +24,7 @@ Project indexes are stored in `.integrity/index/` inside your workspace.
 |------|---------|
 | Node.js | 24.x (see `.nvmrc`) |
 | Python | 3.11+ |
-| Yarn | via Corepack (`corepack enable`) |
+| npm | bundled with Node.js |
 | Ollama | [ollama.com](https://ollama.com) (for local AI) |
 
 ### Linux build dependencies
@@ -43,11 +43,10 @@ git clone git@github.com:Riley94/integrity.git
 cd integrity
 
 # Install dependencies (first run takes several minutes)
-corepack enable
-yarn
+npm i
 
 # Compile and launch in watch mode (separate terminals)
-yarn watch          # Terminal 1: continuous compile
+npm run watch       # Terminal 1: continuous compile
 ./scripts/code.sh   # Terminal 2: launch Integrity IDE
 ```
 
@@ -69,7 +68,7 @@ Recommended stack:
 ## Building a release
 
 ```bash
-yarn gulp vscode-linux-x64
+npm run gulp -- vscode-linux-x64
 # Output: ../VSCode-linux-x64/
 ```
 
@@ -114,6 +113,8 @@ integrity/                          # VS Code fork
 git fetch upstream
 git merge upstream/main   # monthly cadence recommended
 ```
+
+After merging `upstream/main`, re-delete any restored files under `.github/workflows/` except `ci.yml` and `release.yml`. Integrity CI runs a workflow-allowlist test that fails until those inherited microsoft/vscode Actions are removed again.
 
 ## Extension marketplace
 

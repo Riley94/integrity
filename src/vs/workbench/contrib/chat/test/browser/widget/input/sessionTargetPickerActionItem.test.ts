@@ -228,9 +228,9 @@ suite('SessionTypePickerActionItem', () => {
 			label: 'Codex',
 			checked: false,
 			enabled: false,
-			description: '[Sign in](command:workbench.action.chat.triggerSetup)',
-			ariaDescription: 'Sign in. Sign in to GitHub Copilot to use this agent.',
-			hover: '[Sign in to GitHub Copilot](command:workbench.action.chat.triggerSetup) to use this agent.',
+			description: '[Sign in](command:workbench.action.integrity.signIn)',
+			ariaDescription: 'Sign in. Sign in to Integrity to use this agent.',
+			hover: '[Sign in to Integrity](command:workbench.action.integrity.signIn) to use this agent.',
 		});
 	});
 });

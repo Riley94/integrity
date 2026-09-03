@@ -60,8 +60,8 @@ const PET_FIXTURE_HEIGHT = 400;
 const petPlatformNotification: IChatInputNotification = {
 	id: 'fixture.petPlatform',
 	severity: ChatInputNotificationSeverity.Info,
-	message: 'Choose how you want to use Copilot.',
-	description: 'Sign in to use GitHub Copilot models, or add a model with your own API key.',
+	message: 'Choose how you want to use Integrity AI.',
+	description: 'Integrity accounts are coming soon. Until then, add a model with your own API key or use a local Ollama model.',
 	actions: [],
 	dismissible: false,
 	autoDismissOnMessage: false,

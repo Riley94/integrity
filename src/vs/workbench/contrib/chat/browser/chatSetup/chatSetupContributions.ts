@@ -62,6 +62,7 @@ import { ChatSetupController } from './chatSetupController.js';
 import { GrowthSessionController, registerGrowthSession } from './chatSetupGrowthSession.js';
 import { AICodeActionsHelper, AINewSymbolNamesProvider, ChatCodeActionsProvider, SetupAgent } from './chatSetupProviders.js';
 import { ChatSetup } from './chatSetupRunner.js';
+import { integritySignInActionTitle, integritySignInActionTitleEllipsis, INTEGRITY_SIGN_IN_COMMAND_ID, showIntegritySignInComingSoon } from '../../common/integritySignIn.js';
 
 const defaultChat = {
 	chatExtensionId: product.defaultChatAgent?.chatExtensionId ?? '',
@@ -224,7 +225,7 @@ export class ChatSetupContribution extends Disposable implements IWorkbenchContr
 
 		class ChatSetupTriggerAction extends Action2 {
 
-			static CHAT_SETUP_ACTION_LABEL = localize2('triggerChatSetup', "Use AI Features with Copilot for free...");
+			static CHAT_SETUP_ACTION_LABEL = localize2('triggerChatSetup', "Use Integrity AI Features...");
 
 			constructor() {
 				super({
@@ -331,17 +332,18 @@ export class ChatSetupContribution extends Disposable implements IWorkbenchContr
 			constructor() {
 				super({
 					id: 'workbench.action.chat.triggerSetupForceSignIn',
-					title: localize2('forceSignIn', "Sign in to use GitHub Copilot")
+					title: integritySignInActionTitle
 				});
 			}
 
 			override async run(accessor: ServicesAccessor): Promise<unknown> {
-				const commandService = accessor.get(ICommandService);
+				const dialogService = accessor.get(IDialogService);
 				const telemetryService = accessor.get(ITelemetryService);
 
-				telemetryService.publicLog2<WorkbenchActionExecutedEvent, WorkbenchActionExecutedClassification>('workbenchActionExecuted', { id: CHAT_SETUP_ACTION_ID, from: 'api' });
+				telemetryService.publicLog2<WorkbenchActionExecutedEvent, WorkbenchActionExecutedClassification>('workbenchActionExecuted', { id: INTEGRITY_SIGN_IN_COMMAND_ID, from: 'api' });
 
-				return commandService.executeCommand(CHAT_SETUP_ACTION_ID, undefined, { forceSignInDialog: true });
+				await showIntegritySignInComingSoon(dialogService);
+				return undefined;
 			}
 		}
 
@@ -369,7 +371,7 @@ export class ChatSetupContribution extends Disposable implements IWorkbenchContr
 			constructor() {
 				super({
 					id: 'workbench.action.chat.triggerSetupFromAccounts',
-					title: localize2('triggerChatSetupFromAccounts', "Sign in to use GitHub Copilot..."),
+					title: integritySignInActionTitleEllipsis,
 					menu: {
 						id: MenuId.AccountsContext,
 						group: '2_copilot',
@@ -385,12 +387,12 @@ export class ChatSetupContribution extends Disposable implements IWorkbenchContr
 			}
 
 			override async run(accessor: ServicesAccessor): Promise<void> {
-				const commandService = accessor.get(ICommandService);
+				const dialogService = accessor.get(IDialogService);
 				const telemetryService = accessor.get(ITelemetryService);
 
-				telemetryService.publicLog2<WorkbenchActionExecutedEvent, WorkbenchActionExecutedClassification>('workbenchActionExecuted', { id: CHAT_SETUP_ACTION_ID, from: 'accounts' });
+				telemetryService.publicLog2<WorkbenchActionExecutedEvent, WorkbenchActionExecutedClassification>('workbenchActionExecuted', { id: INTEGRITY_SIGN_IN_COMMAND_ID, from: 'accounts' });
 
-				return commandService.executeCommand(CHAT_SETUP_ACTION_ID);
+				await showIntegritySignInComingSoon(dialogService);
 			}
 		}
 
@@ -422,12 +424,12 @@ export class ChatSetupContribution extends Disposable implements IWorkbenchContr
 			}
 
 			override async run(accessor: ServicesAccessor): Promise<void> {
-				const commandService = accessor.get(ICommandService);
+				const dialogService = accessor.get(IDialogService);
 				const telemetryService = accessor.get(ITelemetryService);
 
-				telemetryService.publicLog2<WorkbenchActionExecutedEvent, WorkbenchActionExecutedClassification>('workbenchActionExecuted', { id: CHAT_SETUP_ACTION_ID, from: 'titlebar' });
+				telemetryService.publicLog2<WorkbenchActionExecutedEvent, WorkbenchActionExecutedClassification>('workbenchActionExecuted', { id: INTEGRITY_SIGN_IN_COMMAND_ID, from: 'titlebar' });
 
-				return commandService.executeCommand(CHAT_SETUP_ACTION_ID);
+				await showIntegritySignInComingSoon(dialogService);
 			}
 		}
 
@@ -435,8 +437,8 @@ export class ChatSetupContribution extends Disposable implements IWorkbenchContr
 			constructor() {
 				super(
 					ChatConfiguration.TitleBarSignInEnabled,
-					localize('toggle.chatSignIn', 'Copilot Sign In'),
-					localize('toggle.chatSignInDescription', "Toggle visibility of the Copilot Sign In button in title bar"),
+					localize('toggle.chatSignIn', 'Integrity Sign In'),
+					localize('toggle.chatSignInDescription', "Toggle visibility of the Integrity Sign In button in title bar"),
 					3,
 					ContextKeyExpr.and(
 						IsWebContext.negate(),
@@ -560,7 +562,22 @@ export class ChatSetupContribution extends Disposable implements IWorkbenchContr
 			}
 		}
 
+		class IntegritySignInAction extends Action2 {
+			constructor() {
+				super({
+					id: INTEGRITY_SIGN_IN_COMMAND_ID,
+					title: integritySignInActionTitle,
+					f1: false,
+				});
+			}
+
+			override async run(accessor: ServicesAccessor): Promise<void> {
+				await showIntegritySignInComingSoon(accessor.get(IDialogService));
+			}
+		}
+
 		registerAction2(ChatSetupTriggerAction);
+		registerAction2(IntegritySignInAction);
 		registerAction2(ChatSetupTriggerForceSignInDialogAction);
 		registerAction2(ChatSetupFromAccountsAction);
 		registerAction2(ChatSetupSignInTitleBarAction);

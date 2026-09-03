@@ -17,10 +17,8 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: '24'
-
-      - name: Enable Corepack
-        run: corepack enable
+          node-version-file: .nvmrc
+          cache: npm
 
       - name: Install system dependencies
         run: |
@@ -29,25 +27,20 @@ jobs:
             libxkbfile-dev libsecret-1-dev libkrb5-dev \
             build-essential python3 python-is-python3
 
-      - name: Cache node_modules
-        uses: actions/cache@v6
-        with:
-          path: |
-            node_modules
-            build/node_modules
-            extensions/node_modules
-          key: ${{ runner.os }}-yarn-${{ hashFiles('yarn.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-yarn-
-
       - name: Install dependencies
-        run: yarn --frozen-lockfile
+        run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
+
+      - name: Guard against restored upstream workflows
+        run: node --experimental-strip-types --test build/npm/integrityWorkflows.test.ts
 
       - name: Compile integrity-ai extension
-        run: yarn gulp compile-extension:integrity-ai
+        run: npm run gulp -- compile-extension:integrity-ai
 
       - name: Compile check (client)
-        run: yarn compile
+        run: npm run compile
 
   nightly-linux:
     if: github.event_name == 'schedule'
@@ -58,10 +51,8 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: '24'
-
-      - name: Enable Corepack
-        run: corepack enable
+          node-version-file: .nvmrc
+          cache: npm
 
       - name: Install system dependencies
         run: |
@@ -71,10 +62,10 @@ jobs:
             build-essential python3 python-is-python3
 
       - name: Install dependencies
-        run: yarn --frozen-lockfile
+        run: npm ci
 
       - name: Build linux x64
-        run: yarn gulp vscode-linux-x64
+        run: npm run gulp -- vscode-linux-x64
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7

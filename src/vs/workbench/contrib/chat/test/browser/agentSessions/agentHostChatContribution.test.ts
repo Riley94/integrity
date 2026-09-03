@@ -13979,7 +13979,7 @@ suite('AgentHostChatContribution', () => {
 					args: [undefined, {
 						forceSignInDialog: true,
 						additionalScopes: ['read:user'],
-						dialogTitle: 'Sign in to use GitHub Copilot',
+						dialogTitle: 'Sign in to Integrity',
 						disableChatViewReveal: true,
 						returnResult: true,
 					}],

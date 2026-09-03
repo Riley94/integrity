@@ -596,16 +596,16 @@ export class ChatStatusDashboard extends DomWidget {
 		let descriptionText: string | MarkdownString;
 		let descriptionClass = '.description';
 		if (newUser && anonymousUser) {
-			descriptionText = new MarkdownString(localize({ key: 'activeDescriptionAnonymous', comment: ['{Locked="]({2})"}', '{Locked="]({3})"}'] }, "By continuing with {0} Copilot, you agree to {1}'s [Terms]({2}) and [Privacy Statement]({3})", defaultChat.provider.default.name, defaultChat.provider.default.name, defaultChat.termsStatementUrl, defaultChat.privacyStatementUrl), { isTrusted: true });
+			descriptionText = new MarkdownString(localize({ key: 'activeDescriptionAnonymous', comment: ['{Locked="]({1})"}', '{Locked="]({2})"}'] }, "By continuing, you agree to {0}'s [Terms]({1}) and [Privacy Statement]({2})", defaultChat.provider.default.name, defaultChat.termsStatementUrl, defaultChat.privacyStatementUrl), { isTrusted: true });
 			descriptionClass = `${descriptionClass}.terms`;
 		} else if (newUser) {
-			descriptionText = localize('activateDescription', "Set up Copilot to use AI features.");
+			descriptionText = localize('activateDescription', "Set up Integrity AI to use local models and optional BYOK providers.");
 		} else if (anonymousUser) {
-			descriptionText = localize('enableMoreDescription', "Sign in to enable more Copilot AI features.");
+			descriptionText = localize('enableMoreDescription', "Integrity accounts are coming soon. Until then, Integrity AI runs locally.");
 		} else if (disabled) {
-			descriptionText = localize('enableDescription', "Enable Copilot to use AI features.");
+			descriptionText = localize('enableDescription', "Enable Integrity AI to use local models.");
 		} else {
-			descriptionText = localize('signInDescription', "Sign in to use GitHub Copilot AI features.");
+			descriptionText = localize('signInDescription', "Integrity accounts are coming soon. Until then, Integrity AI runs locally with Ollama or your own API keys.");
 		}
 
 		let buttonLabel: string;
@@ -616,12 +616,14 @@ export class ChatStatusDashboard extends DomWidget {
 		} else if (disabled) {
 			buttonLabel = localize('enableCopilotButton', "Enable AI Features");
 		} else {
-			buttonLabel = localize('signInToUseAIFeatures', "Sign in to use GitHub Copilot");
+			buttonLabel = localize('signInToUseAIFeatures', "Sign in to Integrity");
 		}
 
 		let commandId: string;
 		if (newUser && anonymousUser) {
 			commandId = 'workbench.action.chat.triggerSetupAnonymousWithoutDialog';
+		} else if (signedOut) {
+			commandId = 'workbench.action.integrity.signIn';
 		} else {
 			commandId = 'workbench.action.chat.triggerSetup';
 		}

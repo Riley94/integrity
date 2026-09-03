@@ -21,9 +21,10 @@ import { SessionType } from '../../../common/chatSessionsService.js';
 import { MANAGE_CHAT_COMMAND_ID } from '../../../common/constants.js';
 import { COPILOT_VENDOR_ID, ILanguageModelsService } from '../../../common/languageModels.js';
 import { ILanguageModelsConfigurationService } from '../../../common/languageModelsConfiguration.js';
+import { INTEGRITY_SIGN_IN_COMMAND_ID } from '../../../common/integritySignIn.js';
 
-const SIGNED_OUT_MODELS_NOTIFICATION_ID = 'agentHost.signedOutModels.copilot';
-const SIGN_IN_COMMAND_ID = 'workbench.action.chat.triggerSetup';
+const SIGNED_OUT_MODELS_NOTIFICATION_ID = 'agentHost.signedOutModels.integrity';
+const SIGN_IN_COMMAND_ID = INTEGRITY_SIGN_IN_COMMAND_ID;
 const COPILOT_AGENT_HOST_PROVIDER_ID = 'copilotcli';
 const NOTIFICATION_CONTEXT_KEYS = new Set([
 	ChatEntitlementContextKeys.clientByokEnabled.key,
@@ -219,8 +220,8 @@ export class AgentHostSignedOutModelsNotificationContribution extends Disposable
 		return {
 			id: SIGNED_OUT_MODELS_NOTIFICATION_ID,
 			severity: ChatInputNotificationSeverity.Info,
-			message: localize('agentHost.signedOutModels.message', "Choose how you want to use Copilot."),
-			description: localize('agentHost.signedOutModels.description', "Sign in to use GitHub Copilot models, or add a model with your own API key."),
+			message: localize('agentHost.signedOutModels.message', "Choose how you want to use Integrity AI."),
+			description: localize('agentHost.signedOutModels.description', "Integrity accounts are coming soon. Until then, add a model with your own API key or use a local Ollama model."),
 			actions: [
 				{
 					kind: ChatInputNotificationActionKind.Command,

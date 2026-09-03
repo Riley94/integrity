@@ -115,7 +115,7 @@ suite('Chat setup dialog presentation', () => {
 		return new TestConfigurationService({ [ChatMicrosoftAuthenticationEnabledSettingId]: enabled });
 	}
 
-	test('places signed-out continuation after providers', () => {
+	test('signed-out setup offers Integrity placeholder instead of Copilot providers', () => {
 		const buttons = getChatSetupDialogButtons(ChatEntitlement.Unknown, { allowContinueWithoutSignIn: true }, false, false, providers);
 		const footer = getChatSetupDialogFooter(undefined, TelemetryLevel.USAGE, 'https://example.com/settings', {
 			providerName: 'GitHub',
@@ -129,27 +129,25 @@ suite('Chat setup dialog presentation', () => {
 			lastButton: buttons.at(-1),
 			footer,
 		}, {
-			buttonLabels: ['Continue with GitHub', 'Continue with Google', 'Continue with Apple', 'Continue with GHE', 'Continue Without Signing In'],
+			buttonLabels: ['Continue without an account'],
 			lastButton: {
-				label: 'Continue Without Signing In',
+				label: 'Continue without an account',
 				strategy: ChatSetupStrategy.Canceled,
-				classes: ['link-button'],
+				classes: ['continue-button', 'default'],
 			},
-			footer: 'By continuing, you agree to GitHub\'s [Terms](https://example.com/terms) and [Privacy Statement](https://example.com/privacy). GitHub Copilot may show [public code](https://example.com/public-code) suggestions and use your data to improve the product. You can change these [settings](https://example.com/settings) anytime.',
+			footer: 'By continuing, you agree to GitHub\'s [Terms](https://example.com/terms) and [Privacy Statement](https://example.com/privacy). Integrity AI runs locally by default. Cloud fallback only happens when you enable it and add your own API keys.',
 		});
 	});
 
-	test('places Microsoft after the other providers and before the signed-out continuation', () => {
+	test('force-sign-in also uses the Integrity placeholder', () => {
 		assert.deepStrictEqual({
-			withMicrosoft: buttonLabels({ allowContinueWithoutSignIn: true }, false, true),
-			withoutMicrosoft: buttonLabels({ allowContinueWithoutSignIn: true }, false, false),
-			// The enterprise dialog offers the same social providers, in the same order, because
-			// every one of them signs in against whichever host the default account points at.
-			enterprise: buttonLabels({}, true, true),
+			withMicrosoft: buttonLabels({ forceSignInDialog: true }, false, true),
+			withoutMicrosoft: buttonLabels({ forceSignInDialog: true }, false, false),
+			enterprise: buttonLabels({ forceSignInDialog: true }, true, true),
 		}, {
-			withMicrosoft: ['Continue with GitHub', 'Continue with Google', 'Continue with Apple', 'Continue with Microsoft', 'Continue with GHE', 'Continue Without Signing In'],
-			withoutMicrosoft: ['Continue with GitHub', 'Continue with Google', 'Continue with Apple', 'Continue with GHE', 'Continue Without Signing In'],
-			enterprise: ['Continue with GHE', 'Continue with Google', 'Continue with Apple', 'Continue with Microsoft', 'Continue with GitHub'],
+			withMicrosoft: ['Continue without an account'],
+			withoutMicrosoft: ['Continue without an account'],
+			enterprise: ['Continue without an account'],
 		});
 	});
 

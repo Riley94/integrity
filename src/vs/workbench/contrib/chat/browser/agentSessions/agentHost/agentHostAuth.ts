@@ -650,7 +650,7 @@ async function forceAuthenticationInteractively(
 	const setupResult = await commandService.executeCommand<IChatSetupResult>(CHAT_SETUP_ACTION_ID, undefined, {
 		forceSignInDialog: true,
 		additionalScopes: scopes,
-		dialogTitle: localize('agentHost.signInDialogTitle', "Sign in to use GitHub Copilot"),
+		dialogTitle: localize('agentHost.signInDialogTitle', "Sign in to Integrity"),
 		disableChatViewReveal: true,
 		returnResult: true,
 	});
@@ -659,7 +659,7 @@ async function forceAuthenticationInteractively(
 		return undefined;
 	}
 	if (!setupResult.success) {
-		throw setupResult.error ?? new Error(localize('agentHost.signInFailed', "Failed to sign in to use GitHub Copilot."));
+		throw setupResult.error ?? new Error(localize('agentHost.signInFailed', "Failed to sign in to Integrity."));
 	}
 	const token = await resolveTokenForResource(
 		URI.parse(resource.resource),

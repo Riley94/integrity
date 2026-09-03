@@ -194,13 +194,13 @@ suite('ChatModelsWidget', () => {
 			});
 		});
 
-		test('prepends GitHub Copilot sign-in when signed out', async () => {
+		test('prepends Integrity sign-in when signed out', async () => {
 			const ran: string[] = [];
 			const actions = buildAddModelsDropdownActions(
 				[createVendor('anthropic', 'Anthropic')],
 				true,
 				vendor => { ran.push(vendor.vendor); },
-				() => { ran.push('copilot'); },
+				() => { ran.push('integrity'); },
 			);
 
 			for (const action of actions) {
@@ -213,12 +213,12 @@ suite('ChatModelsWidget', () => {
 				actions: actions.map(action => action instanceof Separator ? 'separator' : `${action.id}:${action.label}`),
 				ran,
 			}, {
-				actions: ['signIn-github-copilot:GitHub Copilot', 'separator', 'enable-anthropic:Anthropic'],
-				ran: ['copilot', 'anthropic'],
+				actions: ['signIn-integrity:Integrity', 'separator', 'enable-anthropic:Anthropic'],
+				ran: ['integrity', 'anthropic'],
 			});
 		});
 
-		test('offers GitHub Copilot sign-in when BYOK model addition is unavailable', () => {
+		test('offers Integrity sign-in when BYOK model addition is unavailable', () => {
 			const actions = buildAddModelsDropdownActions(
 				[createVendor('anthropic', 'Anthropic')],
 				false,
@@ -228,7 +228,7 @@ suite('ChatModelsWidget', () => {
 
 			assert.deepStrictEqual(
 				actions.map(action => action instanceof Separator ? 'separator' : `${action.id}:${action.label}`),
-				['signIn-github-copilot:GitHub Copilot'],
+				['signIn-integrity:Integrity'],
 			);
 		});
 

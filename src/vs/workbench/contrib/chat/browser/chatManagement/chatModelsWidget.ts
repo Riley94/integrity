@@ -50,7 +50,7 @@ import Severity from '../../../../../base/common/severity.js';
 import { IJSONSchema } from '../../../../../base/common/jsonSchema.js';
 import { formatTokenCount } from '../../../../../base/common/numbers.js';
 import { IDefaultAccountService } from '../../../../../platform/defaultAccount/common/defaultAccount.js';
-import { CHAT_SETUP_ACTION_ID } from '../actions/chatActions.js';
+import { INTEGRITY_SIGN_IN_COMMAND_ID } from '../../common/integritySignIn.js';
 
 const $ = DOM.$;
 
@@ -170,7 +170,7 @@ export function getModelHoverContent(model: ILanguageModel): MarkdownString {
 /**
  * Pure helper for building the dropdown actions shown by the **Add Models** button.
  *
- * Exposed for unit testing. The Copilot sign-in action is independent of whether adding
+ * Exposed for unit testing. The Integrity sign-in action is independent of whether adding
  * configurable BYOK vendors is supported.
  */
 export function buildAddModelsDropdownActions(
@@ -221,8 +221,8 @@ export function buildAddModelsDropdownActions(
 	const actions: IAction[] = [];
 	if (runCopilotSignInAction) {
 		actions.push(toAction({
-			id: 'signIn-github-copilot',
-			label: localize('models.signInGitHubCopilot', "GitHub Copilot"),
+			id: 'signIn-integrity',
+			label: localize('models.signInIntegrity', "Integrity"),
 			run: async () => {
 				await runCopilotSignInAction();
 			},
@@ -1659,7 +1659,7 @@ export class ChatModelsWidget extends Disposable {
 			supportsAddingModels,
 			vendor => this.addModelsForVendor(vendor),
 			this.defaultAccountResolved && this.defaultAccountService.currentDefaultAccount === null
-				? () => this.commandService.executeCommand(CHAT_SETUP_ACTION_ID)
+				? () => this.commandService.executeCommand(INTEGRITY_SIGN_IN_COMMAND_ID)
 				: undefined,
 		);
 
