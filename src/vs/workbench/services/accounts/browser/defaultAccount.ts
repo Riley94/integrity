@@ -43,7 +43,7 @@ interface IDefaultAccountConfig {
 			readonly id: string;
 			readonly name: string;
 		};
-		readonly enterprise: {
+		readonly enterprise?: {
 			readonly id: string;
 			readonly name: string;
 		};
@@ -101,10 +101,12 @@ function toDefaultAccountConfig(defaultChatAgent: IDefaultChatAgent): IDefaultAc
 				id: defaultChatAgent.provider.default.id,
 				name: defaultChatAgent.provider.default.name,
 			},
-			enterprise: {
-				id: defaultChatAgent.provider.enterprise.id,
-				name: defaultChatAgent.provider.enterprise.name,
-			},
+			enterprise: defaultChatAgent.provider.enterprise
+				? {
+					id: defaultChatAgent.provider.enterprise.id,
+					name: defaultChatAgent.provider.enterprise.name,
+				}
+				: undefined,
 			enterpriseProviderConfig: `${defaultChatAgent.completionsAdvancedSetting}.authProvider`,
 			enterpriseProviderUriSetting: defaultChatAgent.providerUriSetting,
 			scopes: defaultChatAgent.providerScopes,
@@ -1571,9 +1573,10 @@ export class DefaultAccountProvider extends Disposable implements IDefaultAccoun
 	}
 
 	getDefaultAccountAuthenticationProvider(): IDefaultAccountAuthenticationProvider {
-		if (this.configurationService.getValue<string | undefined>(this.defaultAccountConfig.authenticationProvider.enterpriseProviderConfig) === this.defaultAccountConfig.authenticationProvider.enterprise.id) {
+		const enterprise = this.defaultAccountConfig.authenticationProvider.enterprise;
+		if (enterprise && this.configurationService.getValue<string | undefined>(this.defaultAccountConfig.authenticationProvider.enterpriseProviderConfig) === enterprise.id) {
 			return {
-				...this.defaultAccountConfig.authenticationProvider.enterprise,
+				...enterprise,
 				enterprise: true
 			};
 		}

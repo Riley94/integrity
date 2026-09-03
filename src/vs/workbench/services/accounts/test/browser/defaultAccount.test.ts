@@ -1498,6 +1498,33 @@ suite('DefaultAccountProvider sign in scopes', () => {
 	});
 });
 
+suite('DefaultAccountService missing enterprise provider', () => {
+
+	const disposables = ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('uses the default provider when product.json omits enterprise', () => {
+		const productService: IProductService = {
+			...TestProductService,
+			defaultChatAgent: {
+				...TestProductService.defaultChatAgent,
+				extensionId: 'integrity.integrity-ai',
+				chatExtensionId: 'integrity.integrity-ai',
+				completionsAdvancedSetting: 'integrity.ai.inlineCompletions.advanced',
+				provider: {
+					default: { id: 'ollama', name: 'Ollama' },
+				},
+			},
+		};
+
+		const service = disposables.add(new DefaultAccountService(productService));
+		assert.deepStrictEqual(service.getDefaultAccountAuthenticationProvider(), {
+			id: 'ollama',
+			name: 'Ollama',
+			enterprise: false,
+		});
+	});
+});
+
 class TestRequestService implements IRequestService {
 	readonly _serviceBrand: undefined;
 	readonly onDidCompleteRequest = Event.None;

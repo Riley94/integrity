@@ -93,11 +93,53 @@ export const GENERATE_HOOK_COMMAND_ID = 'workbench.action.chat.generateHook';
 export const INSERT_FORK_CONVERSATION_COMMAND_ID = 'workbench.action.chat.insertForkConversationCommand';
 export const INSERT_TROUBLESHOOT_COMMAND_ID = 'workbench.action.chat.insertTroubleshootCommand';
 
-const defaultChat = {
-	provider: product.defaultChatAgent?.provider ?? { enterprise: { id: '' } },
-	completionsAdvancedSetting: product.defaultChatAgent?.completionsAdvancedSetting ?? '',
-	completionsMenuCommand: product.defaultChatAgent?.completionsMenuCommand ?? '',
-};
+export interface INormalizedDefaultChatConfig {
+	readonly provider: {
+		readonly default: { readonly id: string; readonly name: string };
+		readonly enterprise: { readonly id: string; readonly name: string } | undefined;
+	};
+	readonly completionsAdvancedSetting: string;
+	readonly completionsMenuCommand: string;
+}
+
+/**
+ * Normalizes {@link IDefaultChatAgent} so Integrity-style products that only
+ * declare `provider.default` (e.g. Ollama) do not crash at module load.
+ */
+export function getDefaultChatConfig(agent: {
+	readonly provider?: {
+		readonly default?: { readonly id: string; readonly name: string };
+		readonly enterprise?: { readonly id: string; readonly name: string };
+	};
+	readonly completionsAdvancedSetting?: string;
+	readonly completionsMenuCommand?: string;
+} | undefined = product.defaultChatAgent): INormalizedDefaultChatConfig {
+	return {
+		provider: {
+			default: agent?.provider?.default ?? { id: '', name: '' },
+			enterprise: agent?.provider?.enterprise,
+		},
+		completionsAdvancedSetting: agent?.completionsAdvancedSetting ?? '',
+		completionsMenuCommand: agent?.completionsMenuCommand ?? '',
+	};
+}
+
+/**
+ * When an enterprise auth provider is configured, hide Copilot settings for
+ * those users. When it is absent, any enabled-chat user is treated as
+ * non-enterprise.
+ */
+export function getNonEnterpriseCopilotUsersContext(config = getDefaultChatConfig()) {
+	if (!config.provider.enterprise) {
+		return ChatContextKeys.enabled;
+	}
+	return ContextKeyExpr.and(
+		ChatContextKeys.enabled,
+		ContextKeyExpr.notEquals(`config.${config.completionsAdvancedSetting}.authProvider`, config.provider.enterprise.id)
+	);
+}
+
+const defaultChat = getDefaultChatConfig();
 
 export interface IChatViewOpenOptions {
 	/**
@@ -1171,7 +1213,7 @@ export function registerChatActions() {
 		}
 	});
 
-	const nonEnterpriseCopilotUsers = ContextKeyExpr.and(ChatContextKeys.enabled, ContextKeyExpr.notEquals(`config.${defaultChat.completionsAdvancedSetting}.authProvider`, defaultChat.provider.enterprise.id));
+	const nonEnterpriseCopilotUsers = getNonEnterpriseCopilotUsersContext(defaultChat);
 	registerAction2(class extends Action2 {
 		constructor() {
 			super({
