@@ -1,0 +1,176 @@
+{
+  "name": "integrity-ai",
+  "displayName": "Integrity AI",
+  "description": "Local-first AI assistant for Integrity IDE — chat, completions, codebase search, and agent mode",
+  "version": "0.1.0",
+  "publisher": "integrity",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "AI",
+    "Chat",
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension",
+  "contributes": {
+    "configuration": {
+      "title": "Integrity AI",
+      "properties": {
+        "integrity.ai.defaultProvider": {
+          "type": "string",
+          "enum": ["ollama", "openai-compat", "anthropic"],
+          "default": "ollama",
+          "description": "Default model provider for chat and completions"
+        },
+        "integrity.ai.cloudFallbackEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow cloud BYOK providers when local models are unavailable"
+        },
+        "integrity.ai.ollama.baseUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:11434",
+          "description": "Ollama server base URL"
+        },
+        "integrity.ai.ollama.chatModel": {
+          "type": "string",
+          "default": "qwen2.5-coder:14b",
+          "description": "Ollama model for chat and agent"
+        },
+        "integrity.ai.ollama.completionModel": {
+          "type": "string",
+          "default": "qwen2.5-coder:7b",
+          "description": "Ollama model for inline completions"
+        },
+        "integrity.ai.ollama.embeddingModel": {
+          "type": "string",
+          "default": "nomic-embed-text",
+          "description": "Ollama model for codebase embeddings"
+        },
+        "integrity.ai.openaiCompat.baseUrl": {
+          "type": "string",
+          "default": "https://api.openai.com/v1",
+          "description": "OpenAI-compatible API base URL"
+        },
+        "integrity.ai.openaiCompat.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API key for OpenAI-compatible provider"
+        },
+        "integrity.ai.openaiCompat.model": {
+          "type": "string",
+          "default": "gpt-4o-mini",
+          "description": "Model name for OpenAI-compatible provider"
+        },
+        "integrity.ai.anthropic.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Anthropic API key (BYOK)"
+        },
+        "integrity.ai.anthropic.model": {
+          "type": "string",
+          "default": "claude-sonnet-4-20250514",
+          "description": "Anthropic model name"
+        },
+        "integrity.ai.inlineCompletions.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable ghost-text inline completions"
+        },
+        "integrity.ai.inlineCompletions.advanced": {
+          "type": "object",
+          "default": {},
+          "description": "Advanced inline completion settings"
+        },
+        "integrity.ai.agent.requireTerminalApproval": {
+          "type": "boolean",
+          "default": true,
+          "description": "Require user approval before running terminal commands in agent mode"
+        },
+        "integrity.ai.agent.requireEditApproval": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show diff preview before applying multi-line edits"
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "integrity.ai.openChat",
+        "title": "Open Integrity Chat",
+        "category": "Integrity"
+      },
+      {
+        "command": "integrity.ai.testConnection",
+        "title": "Test Model Connection",
+        "category": "Integrity"
+      },
+      {
+        "command": "integrity.ai.setupModels",
+        "title": "Setup Recommended Models (Ollama)",
+        "category": "Integrity"
+      },
+      {
+        "command": "integrity.ai.reindexCodebase",
+        "title": "Reindex Codebase",
+        "category": "Integrity"
+      },
+      {
+        "command": "integrity.ai.toggleAgentMode",
+        "title": "Toggle Agent Mode",
+        "category": "Integrity"
+      },
+      {
+        "command": "integrity.ai.applyCodeBlock",
+        "title": "Apply Code Block",
+        "category": "Integrity"
+      },
+      {
+        "command": "integrity.ai.insertCodeBlock",
+        "title": "Insert Code Block at Cursor",
+        "category": "Integrity"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "integrity-ai",
+          "title": "Integrity AI",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "integrity-ai": [
+        {
+          "type": "webview",
+          "id": "integrity.ai.chatView",
+          "name": "Chat"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "integrity.ai.openChat",
+        "key": "ctrl+shift+i",
+        "mac": "cmd+shift+i"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "gulp compile-extension:integrity-ai",
+    "watch": "gulp watch-extension:integrity-ai"
+  },
+  "devDependencies": {
+    "@types/node": "24.x"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Riley94/integrity.git"
+  }
+}

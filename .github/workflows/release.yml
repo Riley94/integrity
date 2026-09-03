@@ -1,0 +1,47 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxkbfile-dev libsecret-1-dev libkrb5-dev \
+            build-essential python3 python-is-python3
+
+      - name: Install dependencies
+        run: yarn --frozen-lockfile
+
+      - name: Build linux x64
+        run: yarn gulp vscode-linux-x64
+
+      - name: Package tarball
+        run: |
+          cd ../VSCode-linux-x64
+          tar -czf ../integrity-linux-x64.tar.gz .
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ../integrity-linux-x64.tar.gz
+          generate_release_notes: true
