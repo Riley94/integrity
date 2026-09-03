@@ -1,0 +1,249 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Riley94. All rights reserved.
+ *  Licensed under the MIT License.
+ *--------------------------------------------------------------------------------------------*/
+
+import * as vscode from 'vscode';
+import { loadAgentRules } from './lmTools';
+import { inferModeKind, isToolAllowedInMode, type AgentModeKind } from './toolNames';
+
+const DEFAULT_MAX_STEPS = 24;
+
+function modeSystemPrompt(mode: AgentModeKind): string {
+	switch (mode) {
+		case 'ask':
+			return 'You are in Ask mode: answer questions using read-only tools only. Do not edit files or run terminal commands.';
+		case 'edit':
+			return 'You are in Edit mode: you may read and edit files. Do not run terminal commands.';
+		case 'agent':
+		default:
+			return 'You are in Agent mode: you may read/edit files, search the codebase, manage todos, and run terminal commands when needed. Prefer small, correct edits. Explain briefly when done.';
+	}
+}
+
+function buildSystemPrompt(mode: AgentModeKind, agentRules: string, extraContext: string): string {
+	const parts = [
+		'You are Integrity AI, a local-first coding assistant built into Integrity IDE.',
+		modeSystemPrompt(mode),
+		'Use tools when you need workspace information or to make changes. Prefer integrity_* tools for file operations.',
+		'Be concise. Use markdown code fences with language tags when showing code.',
+	];
+	if (agentRules.trim()) {
+		parts.push('\n--- Project agent rules ---\n' + agentRules.trim());
+	}
+	if (extraContext.trim()) {
+		parts.push('\n--- Context ---\n' + extraContext.trim());
+	}
+	return parts.join('\n');
+}
+
+function collectEnabledTools(
+	request: vscode.ChatRequest,
+	mode: AgentModeKind,
+): vscode.LanguageModelChatTool[] {
+	const tools: vscode.LanguageModelChatTool[] = [];
+	const requestTools = (request as vscode.ChatRequest & { tools?: Map<vscode.LanguageModelToolInformation, boolean> }).tools;
+
+	if (requestTools) {
+		for (const [info, enabled] of requestTools) {
+			if (!enabled) {
+				continue;
+			}
+			if (!isToolAllowedInMode(info.name, mode)) {
+				continue;
+			}
+			tools.push({
+				name: info.name,
+				description: info.description,
+				inputSchema: info.inputSchema,
+			});
+		}
+		return tools;
+	}
+
+	// Fallback: all registered tools filtered by mode.
+	for (const info of vscode.lm.tools) {
+		if (!isToolAllowedInMode(info.name, mode)) {
+			continue;
+		}
+		tools.push({
+			name: info.name,
+			description: info.description,
+			inputSchema: info.inputSchema,
+		});
+	}
+	return tools;
+}
+
+function historyToMessages(context: vscode.ChatContext): vscode.LanguageModelChatMessage[] {
+	const messages: vscode.LanguageModelChatMessage[] = [];
+	for (const turn of context.history) {
+		if (turn instanceof vscode.ChatRequestTurn) {
+			messages.push(vscode.LanguageModelChatMessage.User(turn.prompt));
+		} else if (turn instanceof vscode.ChatResponseTurn) {
+			const text = turn.response
+				.map(part => part instanceof vscode.ChatResponseMarkdownPart ? part.value.value : '')
+				.filter(Boolean)
+				.join('\n');
+			if (text) {
+				messages.push(vscode.LanguageModelChatMessage.Assistant(text));
+			}
+		}
+	}
+	return messages;
+}
+
+function referencesContext(request: vscode.ChatRequest): string {
+	const blocks: string[] = [];
+	for (const ref of request.references) {
+		if (typeof ref.value === 'string') {
+			blocks.push(ref.modelDescription ? `${ref.modelDescription}\n${ref.value}` : ref.value);
+		} else if (ref.value instanceof vscode.Uri) {
+			blocks.push(`File: ${ref.value.fsPath}`);
+		} else if (ref.value && typeof ref.value === 'object' && 'uri' in (ref.value as object)) {
+			const loc = ref.value as vscode.Location;
+			blocks.push(`Location: ${loc.uri.fsPath}:${loc.range.start.line + 1}`);
+		}
+	}
+	return blocks.join('\n\n');
+}
+
+async function toolResultToText(result: vscode.LanguageModelToolResult): Promise<string> {
+	const chunks: string[] = [];
+	for (const part of result.content) {
+		if (part instanceof vscode.LanguageModelTextPart) {
+			chunks.push(part.value);
+		}
+	}
+	return chunks.join('\n') || '(empty tool result)';
+}
+
+/**
+ * Native chat participant agent loop with streaming + tool invocation.
+ */
+export async function runChatAgentLoop(
+	request: vscode.ChatRequest,
+	context: vscode.ChatContext,
+	stream: vscode.ChatResponseStream,
+	token: vscode.CancellationToken,
+): Promise<vscode.ChatResult> {
+	const modeName = request.modeInstructions2?.name ?? request.modeInstructions ?? 'Agent';
+	const mode = inferModeKind(typeof modeName === 'string' ? modeName : 'agent');
+	const agentRules = await loadAgentRules();
+	const extraContext = referencesContext(request);
+	const system = buildSystemPrompt(mode, agentRules, extraContext);
+
+	const model = request.model;
+	if (!model) {
+		stream.markdown('No language model is available. Configure Ollama or a BYOK provider in Integrity AI settings.');
+		return {};
+	}
+
+	const tools = collectEnabledTools(request, mode);
+	const maxSteps = vscode.workspace.getConfiguration('integrity.ai').get<number>('agent.maxSteps', DEFAULT_MAX_STEPS);
+
+	const messages: vscode.LanguageModelChatMessage[] = [
+		vscode.LanguageModelChatMessage.User(`[System instructions]\n${system}`),
+		...historyToMessages(context),
+		vscode.LanguageModelChatMessage.User(request.prompt),
+	];
+
+	for (let step = 0; step < maxSteps; step++) {
+		if (token.isCancellationRequested) {
+			return {};
+		}
+
+		stream.progress(step === 0 ? 'Thinking…' : `Continuing (step ${step + 1})…`);
+
+		let response: vscode.LanguageModelChatResponse;
+		try {
+			response = await model.sendRequest(messages, {
+				tools: tools.length ? tools : undefined,
+				toolMode: request.toolReferences.length
+					? vscode.LanguageModelChatToolMode.Required
+					: vscode.LanguageModelChatToolMode.Auto,
+			}, token);
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			stream.markdown(`**Model error:** ${message}`);
+			return {};
+		}
+
+		const assistantParts: Array<vscode.LanguageModelTextPart | vscode.LanguageModelToolCallPart> = [];
+		const toolCalls: vscode.LanguageModelToolCallPart[] = [];
+		let textOut = '';
+
+		try {
+			for await (const part of response.stream) {
+				if (token.isCancellationRequested) {
+					return {};
+				}
+				if (part instanceof vscode.LanguageModelTextPart) {
+					assistantParts.push(part);
+					textOut += part.value;
+					stream.markdown(part.value);
+				} else if (part instanceof vscode.LanguageModelToolCallPart) {
+					assistantParts.push(part);
+					toolCalls.push(part);
+				}
+			}
+		} catch (err) {
+			if (token.isCancellationRequested) {
+				return {};
+			}
+			const message = err instanceof Error ? err.message : String(err);
+			stream.markdown(`\n\n**Stream error:** ${message}`);
+			return {};
+		}
+
+		if (!toolCalls.length) {
+			if (!textOut.trim()) {
+				stream.markdown('_No response from model._');
+			}
+			return {};
+		}
+
+		messages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
+
+		const resultParts: vscode.LanguageModelToolResultPart[] = [];
+		for (const call of toolCalls) {
+			if (token.isCancellationRequested) {
+				return {};
+			}
+			stream.progress(`Running \`${call.name}\`…`);
+			try {
+				const result = await vscode.lm.invokeTool(call.name, {
+					input: call.input,
+					toolInvocationToken: request.toolInvocationToken,
+				}, token);
+				const text = await toolResultToText(result);
+				resultParts.push(new vscode.LanguageModelToolResultPart(call.callId, [new vscode.LanguageModelTextPart(text)]));
+			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err);
+				resultParts.push(new vscode.LanguageModelToolResultPart(call.callId, [
+					new vscode.LanguageModelTextPart(`Tool error: ${message}`),
+				]));
+			}
+		}
+
+		messages.push(vscode.LanguageModelChatMessage.User(resultParts));
+	}
+
+	stream.markdown(`\n\n_Agent reached max steps (${maxSteps})._`);
+	return {};
+}
+
+/**
+ * Register the default Integrity chat participant.
+ */
+export function registerChatParticipant(context: vscode.ExtensionContext): void {
+	const participant = vscode.chat.createChatParticipant(
+		'integrity.integrity-ai',
+		async (request, context, stream, token) => {
+			return runChatAgentLoop(request, context, stream, token);
+		},
+	);
+	participant.iconPath = new vscode.ThemeIcon('shield');
+
+	context.subscriptions.push(participant);
+}

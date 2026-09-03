@@ -5,11 +5,17 @@
 	const sendBtn = document.getElementById('send');
 	const clearBtn = document.getElementById('clear');
 	const agentCheckbox = document.getElementById('agent-mode');
+	const openNativeBtn = document.getElementById('open-native');
 	const activeMentions = new Set();
 
 	let streamingEl = null;
 	let streamBuffer = '';
 
+	if (openNativeBtn) {
+		openNativeBtn.addEventListener('click', () => {
+			vscode.postMessage({ type: 'openNativeChat' });
+		});
+	}
 	document.querySelectorAll('.mention').forEach(btn => {
 		btn.addEventListener('click', () => {
 			const mention = btn.dataset.mention;

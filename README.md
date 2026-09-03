@@ -6,10 +6,10 @@ Integrity is a fork of [VS Code](https://github.com/microsoft/vscode) with a bui
 
 ## Features
 
-- **Chat panel** — streaming sidebar chat with `@file`, `@selection`, `@folder`, and `@codebase` context
+- **Chat panel** — native VS Code Chat with Ask / Edit / Agent modes; Integrity models via Ollama or BYOK
 - **Inline completions** — ghost-text suggestions powered by local models (Ollama)
 - **Codebase indexing** — Merkle-tree change detection + local embeddings for semantic `@codebase` search
-- **Agent mode** — multi-step tool loop (read/edit/search/terminal) with approval gates
+- **Agent mode** — multi-step tool loop (read/edit/search/terminal/todos) with approval gates on the native Chat stack
 - **Hybrid AI** — Ollama by default; optional OpenAI-compatible and Anthropic BYOK providers
 
 ## Privacy
@@ -85,7 +85,8 @@ All settings live under **Settings → Integrity AI**:
 | `integrity.ai.ollama.completionModel` | `qwen2.5-coder:7b` | Inline completion model |
 | `integrity.ai.inlineCompletions.enabled` | `true` | Ghost-text completions |
 | `integrity.ai.agent.requireTerminalApproval` | `true` | Approve terminal commands |
-| `integrity.ai.agent.requireEditApproval` | `true` | Preview edits before apply |
+| `integrity.ai.agent.requireEditApproval` | `true` | Confirm edits before apply |
+| `integrity.ai.agent.maxSteps` | `24` | Max tool-calling steps per turn |
 
 ### Agent rules
 
@@ -96,11 +97,11 @@ Create `.integrity/agent-rules.md` in your project to constrain agent behavior (
 ```
 integrity/                          # VS Code fork
 ├── product.json                    # Integrity branding + Open VSX gallery
-├── extensions/integrity-ai/        # Built-in AI extension
-│   ├── src/providers/              # Ollama, OpenAI-compat, Anthropic adapters
-│   ├── src/chat/                   # Chat webview + history
+├── extensions/integrity-ai/        # Built-in AI extension (default chat agent)
+│   ├── src/providers/              # Ollama, OpenAI-compat, Anthropic + LM provider
+│   ├── src/agent/                  # Native chat participant, tools, path policy
+│   ├── src/chat/                   # Status webview (legacy/helper)
 │   ├── src/completion/             # Inline completion provider
-│   ├── src/agent/                  # Agent tool loop
 │   ├── src/indexing/               # Merkle tree + embeddings + vector search
 │   └── src/onboarding/             # First-run wizard + model setup
 ├── scripts/setup-models.sh         # CLI model pull helper

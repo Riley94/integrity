@@ -7,8 +7,11 @@ import * as vscode from 'vscode';
 import { ChatViewProvider } from './chat/chatViewProvider';
 import { ChatHistory } from './chat/chatHistory';
 import { getProviderConfig, ProviderRouter } from './providers/router';
+import { registerLanguageModelProvider } from './providers/languageModelProvider';
 import { CodebaseIndex } from './indexing/indexManager';
 import { AgentLoop } from './agent/agentLoop';
+import { registerChatParticipant } from './agent/chatParticipant';
+import { registerIntegrityTools } from './agent/lmTools';
 import { InlineCompletionProvider } from './completion/inlineCompletionProvider';
 import { runOnboarding, setupRecommendedModels } from './onboarding/setupModels';
 import { registerAgentDiffProvider } from './agent/diffProvider';
@@ -21,6 +24,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	const history = new ChatHistory(context);
 	const index = new CodebaseIndex(router);
 	const agent = new AgentLoop(router, index);
+
+	registerLanguageModelProvider(context, router);
+	registerIntegrityTools(context, index);
+	registerChatParticipant(context);
 
 	chatProvider = new ChatViewProvider(context, router, history, index, agent);
 
@@ -35,7 +42,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	);
 
 	context.subscriptions.push(
-		vscode.commands.registerCommand('integrity.ai.openChat', () => {
+		vscode.commands.registerCommand('integrity.ai.openChat', () => openNativeChat()),
+		vscode.commands.registerCommand('integrity.ai.openStatus', () => {
 			vscode.commands.executeCommand('integrity.ai.chatView.focus');
 		}),
 		vscode.commands.registerCommand('integrity.ai.testConnection', () => testConnection(router)),
@@ -51,11 +59,31 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
 	const output = vscode.window.createOutputChannel('Integrity AI');
 	context.subscriptions.push(output);
-	output.appendLine('Integrity AI extension activated.');
+	output.appendLine('Integrity AI extension activated (native Chat + LM provider).');
 }
 
 export function deactivate(): void {
 	// cleanup handled by subscriptions
+}
+
+async function openNativeChat(): Promise<void> {
+	// Prefer opening the workbench Chat panel in Agent mode.
+	try {
+		await vscode.commands.executeCommand('workbench.action.chat.open', {
+			mode: 'agent',
+			query: '',
+		});
+		return;
+	} catch {
+		// fall through
+	}
+	try {
+		await vscode.commands.executeCommand('workbench.panel.chat');
+		return;
+	} catch {
+		// fall through to legacy status webview
+	}
+	await vscode.commands.executeCommand('integrity.ai.chatView.focus');
 }
 
 async function testConnection(router: ProviderRouter): Promise<void> {

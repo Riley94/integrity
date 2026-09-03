@@ -108,6 +108,18 @@
 		"completionsEnablementSetting": "integrity.ai.inlineCompletions.enabled",
 		"completionsAdvancedSetting": "integrity.ai.inlineCompletions.advanced"
 	},
+	"extensionEnabledApiProposals": {
+		"integrity.integrity-ai": [
+			"defaultChatParticipant",
+			"chatParticipantAdditions",
+			"chatParticipantPrivate",
+			"chatProvider",
+			"findTextInFiles",
+			"textSearchProvider",
+			"languageModelSystem",
+			"languageModelThinkingPart"
+		]
+	},
 	"trustedExtensionAuthAccess": {
 		"github": [
 			"GitHub.copilot-chat"

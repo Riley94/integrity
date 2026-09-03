@@ -53,6 +53,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 				case 'toggleAgent':
 					this.agentMode = !!msg.enabled;
 					break;
+				case 'openNativeChat':
+					await vscode.commands.executeCommand('integrity.ai.openChat');
+					break;
 				case 'applyCode':
 					await vscode.commands.executeCommand('integrity.ai.applyCodeBlock', msg.code, msg.language);
 					break;
@@ -82,6 +85,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
 	private async handleSend(text: string, mentions: string[]): Promise<void> {
 		if (!text.trim()) {
+			return;
+		}
+
+		// Prefer native Chat for agent work.
+		if (this.agentMode) {
+			await vscode.commands.executeCommand('workbench.action.chat.open', {
+				mode: 'agent',
+				query: text,
+			});
 			return;
 		}
 
@@ -208,6 +220,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 	<link rel="stylesheet" href="${styleUri}">
 </head>
 <body>
+	<div id="banner">
+		<p><strong>Agentic coding</strong> now lives in the native Chat panel (Ask / Edit / Agent).</p>
+		<button id="open-native">Open Chat (Agent)</button>
+	</div>
 	<div id="messages"></div>
 	<div id="input-area">
 		<div id="mentions">
@@ -216,9 +232,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 			<button class="mention" data-mention="folder">@folder</button>
 			<button class="mention" data-mention="codebase">@codebase</button>
 		</div>
-		<textarea id="input" placeholder="Ask Integrity AI..." rows="3"></textarea>
+		<textarea id="input" placeholder="Legacy status chat… prefer Open Chat above" rows="3"></textarea>
 		<div id="toolbar">
-			<label><input type="checkbox" id="agent-mode"> Agent mode</label>
+			<label><input type="checkbox" id="agent-mode"> Agent mode (legacy)</label>
 			<button id="clear">Clear</button>
 			<button id="send">Send</button>
 		</div>

@@ -16,6 +16,16 @@
   "activationEvents": [
     "onStartupFinished"
   ],
+  "enabledApiProposals": [
+    "defaultChatParticipant",
+    "chatParticipantAdditions",
+    "chatParticipantPrivate",
+    "chatProvider",
+    "findTextInFiles",
+    "textSearchProvider",
+    "languageModelSystem",
+    "languageModelThinkingPart"
+  ],
   "main": "./out/extension",
   "contributes": {
     "configuration": {
@@ -95,14 +105,215 @@
         "integrity.ai.agent.requireEditApproval": {
           "type": "boolean",
           "default": true,
-          "description": "Show diff preview before applying multi-line edits"
+          "description": "Show confirmation before applying agent file edits"
+        },
+        "integrity.ai.agent.maxSteps": {
+          "type": "number",
+          "default": 24,
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Maximum tool-calling steps per agent turn"
         }
       }
     },
+    "languageModelChatProviders": [
+      {
+        "vendor": "integrity",
+        "displayName": "Integrity AI",
+        "managementCommand": "integrity.ai.testConnection"
+      }
+    ],
+    "chatParticipants": [
+      {
+        "id": "integrity.integrity-ai",
+        "name": "integrity",
+        "fullName": "Integrity AI",
+        "description": "Local-first coding assistant with Ask, Edit, and Agent modes",
+        "isDefault": true,
+        "locations": ["panel"],
+        "modes": ["ask", "edit", "agent"]
+      }
+    ],
+    "languageModelTools": [
+      {
+        "name": "integrity_read_file",
+        "toolReferenceName": "readFile",
+        "displayName": "Read File",
+        "modelDescription": "Read a workspace-relative file. Returns file contents (truncated).",
+        "icon": "$(file)",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Workspace-relative file path"
+            }
+          },
+          "required": ["path"]
+        },
+        "tags": ["integrity"]
+      },
+      {
+        "name": "integrity_list_dir",
+        "toolReferenceName": "listDir",
+        "displayName": "List Directory",
+        "modelDescription": "List files and directories at a workspace-relative path.",
+        "icon": "$(folder)",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Workspace-relative directory path (default '.')"
+            }
+          }
+        },
+        "tags": ["integrity"]
+      },
+      {
+        "name": "integrity_create_file",
+        "toolReferenceName": "createFile",
+        "displayName": "Create File",
+        "modelDescription": "Create a new file with the given content. Fails if the file exists unless overwrite is true.",
+        "icon": "$(new-file)",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Workspace-relative file path"
+            },
+            "content": {
+              "type": "string",
+              "description": "File contents"
+            },
+            "overwrite": {
+              "type": "boolean",
+              "description": "Overwrite if the file already exists"
+            }
+          },
+          "required": ["path", "content"]
+        },
+        "tags": ["integrity"]
+      },
+      {
+        "name": "integrity_replace_string",
+        "toolReferenceName": "replaceString",
+        "displayName": "Replace String In File",
+        "modelDescription": "Replace a unique oldText with newText in a file. Fails if oldText is missing or appears more than once.",
+        "icon": "$(replace)",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Workspace-relative file path"
+            },
+            "oldText": {
+              "type": "string",
+              "description": "Exact text to find (must be unique)"
+            },
+            "newText": {
+              "type": "string",
+              "description": "Replacement text"
+            }
+          },
+          "required": ["path", "oldText", "newText"]
+        },
+        "tags": ["integrity"]
+      },
+      {
+        "name": "integrity_grep_search",
+        "toolReferenceName": "grepSearch",
+        "displayName": "Grep Search",
+        "modelDescription": "Search workspace file contents with a regular expression pattern.",
+        "icon": "$(search)",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "pattern": {
+              "type": "string",
+              "description": "Regular expression pattern"
+            },
+            "glob": {
+              "type": "string",
+              "description": "Optional glob to limit files (e.g. **/*.ts)"
+            },
+            "maxResults": {
+              "type": "number",
+              "description": "Maximum matches to return"
+            }
+          },
+          "required": ["pattern"]
+        },
+        "tags": ["integrity"]
+      },
+      {
+        "name": "integrity_file_search",
+        "toolReferenceName": "fileSearch",
+        "displayName": "File Search",
+        "modelDescription": "Find files by glob pattern.",
+        "icon": "$(files)",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "glob": {
+              "type": "string",
+              "description": "Glob pattern (e.g. **/package.json)"
+            },
+            "maxResults": {
+              "type": "number"
+            }
+          },
+          "required": ["glob"]
+        },
+        "tags": ["integrity"]
+      },
+      {
+        "name": "integrity_codebase_search",
+        "toolReferenceName": "codebase",
+        "displayName": "Codebase Search",
+        "modelDescription": "Semantic search over the local Integrity codebase index.",
+        "icon": "$(sparkle)",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "Natural language query"
+            }
+          },
+          "required": ["query"]
+        },
+        "tags": ["integrity", "codesearch"]
+      },
+      {
+        "name": "integrity_get_errors",
+        "toolReferenceName": "problems",
+        "displayName": "Get Errors",
+        "modelDescription": "List workspace diagnostics (errors and warnings), optionally filtered by path.",
+        "icon": "$(warning)",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Optional workspace-relative path filter"
+            }
+          }
+        },
+        "tags": ["integrity"]
+      }
+    ],
     "commands": [
       {
         "command": "integrity.ai.openChat",
         "title": "Open Integrity Chat",
+        "category": "Integrity"
+      },
+      {
+        "command": "integrity.ai.openStatus",
+        "title": "Open Integrity Status",
         "category": "Integrity"
       },
       {
@@ -122,7 +333,7 @@
       },
       {
         "command": "integrity.ai.toggleAgentMode",
-        "title": "Toggle Agent Mode",
+        "title": "Toggle Agent Mode (legacy webview)",
         "category": "Integrity"
       },
       {
@@ -150,7 +361,7 @@
         {
           "type": "webview",
           "id": "integrity.ai.chatView",
-          "name": "Chat"
+          "name": "Status"
         }
       ]
     },
@@ -164,7 +375,8 @@
   },
   "scripts": {
     "compile": "gulp compile-extension:integrity-ai",
-    "watch": "gulp watch-extension:integrity-ai"
+    "watch": "gulp watch-extension:integrity-ai",
+    "test": "npx --yes tsx --test src/**/test/*.test.ts src/**/test/**/*.test.ts"
   },
   "devDependencies": {
     "@types/node": "24.x"
