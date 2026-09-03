@@ -30,7 +30,7 @@ jobs:
             build-essential python3 python-is-python3
 
       - name: Cache node_modules
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             node_modules
