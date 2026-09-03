@@ -1,0 +1,59 @@
+---
+description: Core standards for the Integrity AI-powered IDE — design clarity, testing, documentation, and commit hygiene
+alwaysApply: true
+---
+
+# Integrity AI IDE Standards
+
+This project is an AI-powered IDE in the same vein as Cursor. Follow these standards on every change.
+
+## 1. Design Decisions — Ask, Don't Guess
+
+When a design choice is ambiguous (architecture, naming, API shape, UX flow, data model, etc.):
+
+- **Stop and ask** the user for clarification before implementing.
+- Present the options and trade-offs when helpful, but do not pick one on the user's behalf.
+- If requirements are incomplete, surface the gap explicitly rather than filling it with assumptions.
+
+```
+❌ BAD: Picking a caching strategy (in-memory vs. Redis) without asking.
+✅ GOOD: "Should session state be in-memory for dev only, or persisted? This affects X and Y."
+```
+
+## 2. Changes Require Tests and a Commit Message — Never Commit
+
+Every code change must include:
+
+1. **Relevant unit tests** that cover the new or modified behavior and guard against regressions.
+2. **Run relevant tests** to ensure no regressions.
+3. **A comprehensive commit message** drafted for the user — but **never run `git commit`**. The user commits.
+
+### Commit message format
+
+Use a clear subject (50–72 chars) plus a body that explains **why**, not just what:
+
+```
+feat(chat): persist conversation history across reloads
+
+Store chat sessions in workspace state so users don't lose context
+when restarting the IDE. Uses existing IStorageService to stay
+consistent with other persisted UI state.
+
+Tests: chatSessionStorage.test.ts covers save, restore, and corrupt-data fallback.
+```
+
+### Tests
+
+- Add or update tests in the same change set as the implementation.
+- Cover happy path, meaningful edge cases, and regression scenarios for bugs being fixed.
+- Skip tests only when the change is purely cosmetic and truly untestable — call that out explicitly.
+
+## 3. Documentation and Comments
+
+Document code according to best practices for this codebase:
+
+- **Public APIs, services, and extension points**: JSDoc/TSDoc with purpose, parameters, return values, and non-obvious side effects.
+- **Complex logic**: Comments explaining *why* a approach was chosen, not what the code literally does.
+- **Non-obvious invariants, constraints, or platform quirks**: Document inline or in adjacent module-level docs.
+
+Match the documentation style already used in neighboring files. Do not leave new modules or exported symbols undocumented.

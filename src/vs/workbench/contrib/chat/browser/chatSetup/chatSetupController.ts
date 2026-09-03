@@ -36,10 +36,24 @@ import { IProductService } from '../../../../../platform/product/common/productS
 
 const defaultChat = {
 	chatExtensionId: product.defaultChatAgent?.chatExtensionId ?? '',
-	provider: product.defaultChatAgent?.provider ?? { default: { id: '', name: '' }, enterprise: { id: '', name: '' }, apple: { id: '', name: '' }, google: { id: '', name: '' }, microsoft: { id: '', name: '' } },
+	provider: product.defaultChatAgent?.provider ?? { default: { id: '', name: '' } },
 	providerUriSetting: product.defaultChatAgent?.providerUriSetting ?? '',
 	completionsAdvancedSetting: product.defaultChatAgent?.completionsAdvancedSetting ?? '',
 };
+
+function resolveChatSetupProviderId(options: IChatSetupControllerOptions): string {
+	if (options.useSocialProvider) {
+		return options.useSocialProvider;
+	}
+	if (options.useEnterpriseProvider) {
+		const enterpriseId = defaultChat.provider.enterprise?.id;
+		if (!enterpriseId) {
+			throw new Error(localize('enterpriseProviderUnavailable', "Enterprise authentication is not configured for this product."));
+		}
+		return enterpriseId;
+	}
+	return defaultChat.provider.default.id;
+}
 
 export interface IChatSetupControllerOptions {
 	readonly forceSignIn?: boolean;
@@ -141,7 +155,7 @@ export class ChatSetupController extends Disposable {
 					return undefined;
 				}
 				if (!result.defaultAccount) {
-					const provider = options.useSocialProvider ?? (options.useEnterpriseProvider ? defaultChat.provider.enterprise.id : defaultChat.provider.default.id);
+					const provider = resolveChatSetupProviderId(options);
 					this.telemetryService.publicLog2<InstallChatEvent, InstallChatClassification>('commandCenter.chatInstall', { installResult: 'failedNotSignedIn', installDuration: watch.elapsed(), signUpErrorCode: undefined, provider });
 					return undefined; // treat as cancelled because signing in already triggers an error dialog
 				}
@@ -218,7 +232,7 @@ export class ChatSetupController extends Disposable {
 		if (options.forceAnonymous && entitlement === ChatEntitlement.Unknown) {
 			provider = 'anonymous';
 		} else {
-			provider = options.useSocialProvider ?? (options.useEnterpriseProvider ? defaultChat.provider.enterprise.id : defaultChat.provider.default.id);
+			provider = resolveChatSetupProviderId(options);
 		}
 
 		try {
@@ -324,6 +338,10 @@ export class ChatSetupController extends Disposable {
 		});
 
 		if (options.useEnterpriseProvider) {
+			if (!defaultChat.provider.enterprise) {
+				this.telemetryService.publicLog2<InstallChatEvent, InstallChatClassification>('commandCenter.chatInstall', { installResult: 'failedEnterpriseSetup', installDuration: 0, signUpErrorCode: undefined, provider: undefined });
+				return false;
+			}
 			const success = await this.handleEnterpriseInstance();
 			if (!success) {
 				this.telemetryService.publicLog2<InstallChatEvent, InstallChatClassification>('commandCenter.chatInstall', { installResult: 'failedEnterpriseSetup', installDuration: 0, signUpErrorCode: undefined, provider: undefined });
@@ -339,7 +357,7 @@ export class ChatSetupController extends Disposable {
 			existingAdvancedSetting = {};
 		}
 
-		if (options.useEnterpriseProvider) {
+		if (options.useEnterpriseProvider && defaultChat.provider.enterprise) {
 			await this.configurationService.updateValue(`${defaultChat.completionsAdvancedSetting}`, {
 				...existingAdvancedSetting,
 				'authProvider': defaultChat.provider.enterprise.id
@@ -355,6 +373,11 @@ export class ChatSetupController extends Disposable {
 	}
 
 	private async handleEnterpriseInstance(): Promise<ChatSetupResultValue> {
+		const enterprise = defaultChat.provider.enterprise;
+		if (!enterprise) {
+			return false;
+		}
+
 		const domainRegEx = /^[a-zA-Z\-_]+$/;
 		const fullUriRegEx = /^(https:\/\/)?([a-zA-Z0-9-]+\.)*[a-zA-Z0-9-]+\.ghe\.com\/?$/;
 
@@ -365,7 +388,7 @@ export class ChatSetupController extends Disposable {
 
 		let isSingleWord = false;
 		const result = await this.quickInputService.input({
-			prompt: localize('enterpriseInstance', "What is your {0} instance?", defaultChat.provider.enterprise.name),
+			prompt: localize('enterpriseInstance', "What is your {0} instance?", enterprise.name),
 			placeHolder: localize('enterpriseInstancePlaceholder', 'i.e. "octocat" or "https://octocat.ghe.com"...'),
 			ignoreFocusLost: true,
 			value: uri,
@@ -383,7 +406,7 @@ export class ChatSetupController extends Disposable {
 					};
 				} if (!fullUriRegEx.test(value)) {
 					return {
-						content: localize('invalidEnterpriseInstance', 'You must enter a valid {0} instance (i.e. "octocat" or "https://octocat.ghe.com")', defaultChat.provider.enterprise.name),
+						content: localize('invalidEnterpriseInstance', 'You must enter a valid {0} instance (i.e. "octocat" or "https://octocat.ghe.com")', enterprise.name),
 						severity: Severity.Error
 					};
 				}

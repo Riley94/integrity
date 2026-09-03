@@ -557,14 +557,16 @@ export class OnboardingVariationA extends Disposable implements IOnboardingServi
 			this._handleSignIn('apple');
 		}));
 
-		const gheBtn = this._registerStepFocusable(this._createSignInButton(actions, 'github-enterprise', localize('onboarding.signIn.ghe', "GHE"), {
-			textOnly: true,
-			label: localize('onboarding.signIn.ghe.aria', "Continue with GitHub Enterprise")
-		}));
-		this.stepDisposables.add(addDisposableListener(gheBtn, EventType.CLICK, () => {
-			this._logAction('signIn', undefined, 'github-enterprise');
-			void this._handleEnterpriseSignIn();
-		}));
+		if (defaultChat.provider.enterprise) {
+			const gheBtn = this._registerStepFocusable(this._createSignInButton(actions, 'github-enterprise', localize('onboarding.signIn.ghe', "GHE"), {
+				textOnly: true,
+				label: localize('onboarding.signIn.ghe.aria', "Continue with GitHub Enterprise")
+			}));
+			this.stepDisposables.add(addDisposableListener(gheBtn, EventType.CLICK, () => {
+				this._logAction('signIn', undefined, 'github-enterprise');
+				void this._handleEnterpriseSignIn();
+			}));
+		}
 	}
 
 	private static readonly GHE_INPUT_ACTION_PADDING = 28;
@@ -626,7 +628,7 @@ export class OnboardingVariationA extends Disposable implements IOnboardingServi
 				case GheParseResultKind.Invalid:
 					inputBox.element.classList.add('error');
 					message.classList.add('error');
-					message.textContent = localize('onboarding.signIn.enterprise.invalid', 'You must enter a valid {0} instance (i.e. "octocat" or "https://octocat.ghe.com")', defaultChat.provider.enterprise.name);
+					message.textContent = localize('onboarding.signIn.enterprise.invalid', 'You must enter a valid {0} instance (i.e. "octocat" or "https://octocat.ghe.com")', defaultChat.provider.enterprise?.name ?? '');
 					submitAction.enabled = false;
 					return false;
 			}
@@ -663,11 +665,11 @@ export class OnboardingVariationA extends Disposable implements IOnboardingServi
 		spinner.classList.add(...ThemeIcon.asClassNameArray(Codicon.loading), 'codicon-modifier-spin');
 		spinner.setAttribute('aria-hidden', 'true');
 		const message = append(container, $('.onboarding-a-signin-ghe-progress-message'));
-		message.textContent = localize('onboarding.signIn.enterprise.progress', "Waiting for {0} sign-in to complete...", defaultChat.provider.enterprise.name);
+		message.textContent = localize('onboarding.signIn.enterprise.progress', "Waiting for {0} sign-in to complete...", defaultChat.provider.enterprise?.name ?? '');
 	}
 
 	private _getEnterpriseInstancePromptLabel(): string {
-		return localize('onboarding.signIn.enterprise.prompt', "What is your {0} instance?", defaultChat.provider.enterprise.name);
+		return localize('onboarding.signIn.enterprise.prompt', "What is your {0} instance?", defaultChat.provider.enterprise?.name ?? '');
 	}
 
 	private _setEnterpriseSignInUiState(state: EnterpriseSignInUiState): void {
@@ -739,6 +741,9 @@ export class OnboardingVariationA extends Disposable implements IOnboardingServi
 	}
 
 	private async _handleEnterpriseSignIn(): Promise<void> {
+		if (!defaultChat.provider.enterprise) {
+			return;
+		}
 		const existingUri = this.configurationService.getValue<string>(defaultChat.providerUriSetting);
 		if (typeof existingUri !== 'string' || !GHE_FULL_URI_REGEX.test(existingUri)) {
 			this.enterpriseInstanceValue = existingUri ?? '';
@@ -764,8 +769,12 @@ export class OnboardingVariationA extends Disposable implements IOnboardingServi
 	}
 
 	private async _runEnterpriseSignInSetup(): Promise<void> {
+		const enterprise = defaultChat.provider.enterprise;
+		if (!enterprise) {
+			return;
+		}
 		const watch = this.enterpriseSignInWatch ?? StopWatch.create();
-		const provider = defaultChat.provider.enterprise.id;
+		const provider = enterprise.id;
 		this._setEnterpriseSignInUiState('progress');
 
 		try {
