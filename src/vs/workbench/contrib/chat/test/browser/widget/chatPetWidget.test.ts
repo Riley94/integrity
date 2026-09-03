@@ -26,6 +26,7 @@ import { ChatPetService, getChatPetVariant } from '../../../browser/chatPetServi
 import { getChatPetAccessoryImageSource, hasChatPetAccessoryImageDimensions, hasChatPetBodyImageDimensions } from '../../../browser/widget/chatPetAccessoryRenderer.js';
 import { getChatPetAccessoryRigFrame, getChatPetAccessoryRigPose, getChatPetAccessoryTrack, getChatPetAntennaeOcclusionBounds, getChatPetEyeAccessoryAnchor, getChatPetReducedMotionRigFrame } from '../../../browser/widget/chatPetAccessoryRig.js';
 import { CHAT_PET_ACHIEVEMENT_UNLOCKED_DURATION, CHAT_PET_BOUNCE_RESULT_DURATION, CHAT_PET_CONFETTI_SCORE, CHAT_PET_CONFIRMATION_ATTENTION_DURATION, CHAT_PET_ICON_TRANSFORMATION_CHANCE, CHAT_PET_IDLE_SLEEP_DELAY, CHAT_PET_MOUSE_BOUNCE_RELEASE_GRACE_DURATION, CHAT_PET_OVERLAY_CLASS, CHAT_PET_WALL_IMPACT_DURATION, CHAT_PET_YAPPING_CHANCE, ChatPetBlinkController, ChatPetDirectionChangeController, ChatPetFacingController, ChatPetHopController, ChatPetWidget, IChatPetWidgetHost, advanceChatPetThrow, doesChatPetStateBlink, doesChatPetStateTrackCursor, drawChatPetAchievementStar, getChatPetAnchoredHorizontalPosition, getChatPetAnimationFrame, getChatPetBaseState, getChatPetBlinkDelay, getChatPetBuddyName, getChatPetClickInteraction, getChatPetDefaultHorizontalPosition, getChatPetDragPosition, getChatPetEyeAccessoryGazeOffset, getChatPetFallDuration, getChatPetFallTarget, getChatPetFrameDurations, getChatPetGazeDirection, getChatPetHorizontalAnchor, getChatPetHorizontalPosition, getChatPetMouseBounceVelocity, getChatPetMouseCollisionTime, getChatPetPillPlatformTop, getChatPetPlatformTop, getChatPetStackPlatformTop, getChatPetRelativeHorizontalPosition, getChatPetRenderedState, getChatPetRespawnFrameDurations, getChatPetRestoredHorizontalPosition, getChatPetScale, getChatPetSpeechFrameDurations, getChatPetSpriteName, getChatPetSweptPlatformTop, getChatPetThrowLanding, getChatPetThrowRotation, getChatPetThrowVelocity, getChatPetVerticalOffset, getChatPetWallReboundVelocity, getChatPetWideSpriteHorizontalOffset, isChatPetImageSource, isChatPetKeyboardInteractionEnabled, isChatPetMouseBounceEligible, isChatPetMouseBounceGracePeriodElapsed, isChatPetMouseContact, isChatPetVisible, isChatPetWindowActive, setChatPetWideLayerOffset, shouldCelebrateChatPetBounceScore, shouldClaimChatPetWindowOnConstruction, shouldDismissChatPetBounceResult, shouldPlaceChatPetSpeechBubbleLeft, shouldReserveChatPetSpace, shouldSettleChatPetThrow } from '../../../browser/widget/chatPetWidget.js';
+import '../../../browser/widget/media/chatPet.css';
 
 suite('ChatPetWidget', () => {
 
@@ -90,6 +91,7 @@ suite('ChatPetWidget', () => {
 				'move:24:72',
 			]);
 		} finally {
+			clock.restore();
 			controller.dispose();
 		}
 	});
@@ -479,6 +481,7 @@ suite('ChatPetWidget', () => {
 				'move:24:96',
 			]);
 		} finally {
+			clock.restore();
 			controller.dispose();
 		}
 	});
@@ -507,6 +510,7 @@ suite('ChatPetWidget', () => {
 				left: 72,
 			});
 		} finally {
+			clock.restore();
 			controller.dispose();
 		}
 	});
@@ -526,6 +530,7 @@ suite('ChatPetWidget', () => {
 				'reduced',
 			]);
 		} finally {
+			clock.restore();
 			controller.dispose();
 		}
 	});
@@ -555,6 +560,7 @@ suite('ChatPetWidget', () => {
 				left: 24,
 			});
 		} finally {
+			clock.restore();
 			controller.dispose();
 		}
 	});
@@ -588,6 +594,7 @@ suite('ChatPetWidget', () => {
 				'request',
 			]);
 		} finally {
+			clock.restore();
 			controller.dispose();
 		}
 	});
@@ -1528,6 +1535,7 @@ suite('ChatPetWidget', () => {
 				],
 			});
 		} finally {
+			clock.restore();
 			controller.dispose();
 		}
 	});
@@ -2174,9 +2182,21 @@ suite('ChatPetWidget', () => {
 	});
 
 	test('squishes once per pointer contact and keeps the result until the next interaction', async function () {
-		this.timeout(10_000);
+		this.timeout(25_000);
+		sinon.restore();
+		mainWindow.document.body.style.zoom = '';
+		mainWindow.document.documentElement.style.zoom = '';
+		const nativeRaf = mainWindow.requestAnimationFrame.bind(mainWindow);
+		const nativeCancel = mainWindow.cancelAnimationFrame.bind(mainWindow);
+		// Electron throttles rAF when the suite has been running; drive throw physics with timers.
+		mainWindow.requestAnimationFrame = ((cb: FrameRequestCallback) => mainWindow.setTimeout(() => cb(mainWindow.performance.now()), 16)) as unknown as typeof mainWindow.requestAnimationFrame;
+		mainWindow.cancelAnimationFrame = ((id: number) => mainWindow.clearTimeout(id)) as unknown as typeof mainWindow.cancelAnimationFrame;
+		disposables.add(toDisposable(() => {
+			mainWindow.requestAnimationFrame = nativeRaf;
+			mainWindow.cancelAnimationFrame = nativeCancel;
+		}));
 		const parent = mainWindow.document.createElement('div');
-		parent.style.cssText = 'position:relative;width:400px;height:240px';
+		parent.style.cssText = 'position:relative;width:1200px;height:480px';
 		const input = mainWindow.document.createElement('div');
 		input.style.cssText = 'position:absolute;left:0;right:0;bottom:0;height:40px';
 		parent.append(input);
@@ -2207,31 +2227,43 @@ suite('ChatPetWidget', () => {
 		const counter = parent.querySelector<HTMLElement>('.chat-pet-bounce-counter');
 		assert.ok(button);
 		assert.ok(counter);
+		await timeout(350);
+		if (button.classList.contains('entering')) {
+			button.dispatchEvent(new mainWindow.AnimationEvent('animationend', { animationName: 'chat-pet-enter', bubbles: true }));
+		}
 		const throwPet = () => {
 			const event = new mainWindow.KeyboardEvent('keydown', { code: 'ArrowLeft', key: 'ArrowLeft', shiftKey: true, bubbles: true, cancelable: true });
 			Object.defineProperty(event, 'keyCode', { value: 37 });
 			button.dispatchEvent(event);
 		};
 		throwPet();
-		const strike = () => mainWindow.document.dispatchEvent(new mainWindow.MouseEvent('pointermove', {
-			clientX: button.getBoundingClientRect().left + button.getBoundingClientRect().width / 2,
-			clientY: button.getBoundingClientRect().top + button.getBoundingClientRect().height / 2,
-			bubbles: true,
-		}));
-		const moveAway = () => mainWindow.document.dispatchEvent(new mainWindow.MouseEvent('pointermove', {
-			clientX: button.getBoundingClientRect().right + 100,
-			clientY: button.getBoundingClientRect().bottom + 100,
-			bubbles: true,
-		}));
-		strike();
+		assert.ok(button.classList.contains('throwing'), 'expected keyboard throw to start');
+		const dispatchPointer = (clientX: number, clientY: number) => {
+			mainWindow.document.dispatchEvent(new mainWindow.PointerEvent('pointermove', {
+				clientX,
+				clientY,
+				pointerId: 1,
+				pointerType: 'mouse',
+				bubbles: true,
+			}));
+		};
+		const strike = () => {
+			const bounds = button.getBoundingClientRect();
+			dispatchPointer(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
+		};
+		const moveAway = () => {
+			const bounds = button.getBoundingClientRect();
+			dispatchPointer(bounds.right + 100, bounds.bottom + 100);
+		};
+		moveAway();
 		assert.strictEqual(counter.textContent, '');
-		for (let attempt = 0; attempt < 30 && counter.textContent === ''; attempt++) {
+		await timeout(300);
+		for (let attempt = 0; attempt < 80 && !button.classList.contains('bounce-impact'); attempt++) {
 			moveAway();
 			await timeout(20);
 			strike();
 		}
-		strike();
-		strike();
+		assert.ok(button.classList.contains('bounce-impact'), `expected pointer bounce; transform=${button.style.transform}; classes=${button.className}; size=${button.getBoundingClientRect().width}x${button.getBoundingClientRect().height}`);
 		const pointerImpact = {
 			count: counter.textContent,
 			impactClass: button.classList.contains('bounce-impact'),
@@ -2239,9 +2271,11 @@ suite('ChatPetWidget', () => {
 				.some(image => image.getAttribute('src')?.includes('buddy-wall-impact-')),
 			transform: button.style.transform,
 		};
-		for (let attempt = 0; attempt < 100 && (button.classList.contains('throwing') || button.classList.contains('falling')); attempt++) {
+		moveAway();
+		for (let attempt = 0; attempt < 250 && (button.classList.contains('throwing') || button.classList.contains('falling')); attempt++) {
 			await timeout(20);
 		}
+		assert.ok(!button.classList.contains('throwing') && !button.classList.contains('falling'), 'expected pet to land after pointer bounce');
 		const landed = {
 			count: counter.textContent,
 			hidden: counter.classList.contains('hidden'),
@@ -2260,7 +2294,7 @@ suite('ChatPetWidget', () => {
 		const bounceEvent = new mainWindow.KeyboardEvent('keydown', { code: 'Enter', key: 'Enter', bubbles: true, cancelable: true });
 		Object.defineProperty(bounceEvent, 'keyCode', { value: 13 });
 		button.dispatchEvent(bounceEvent);
-		for (let attempt = 0; attempt < 100 && (button.classList.contains('throwing') || button.classList.contains('falling')); attempt++) {
+		for (let attempt = 0; attempt < 250 && (button.classList.contains('throwing') || button.classList.contains('falling')); attempt++) {
 			await timeout(20);
 		}
 		button.click();

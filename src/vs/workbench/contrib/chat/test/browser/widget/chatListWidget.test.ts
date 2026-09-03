@@ -50,7 +50,8 @@ function nextFrame(): Promise<void> {
 async function waitForStableLayout(widget: ChatListWidget, maxFrames = 120): Promise<void> {
 	let previousHeight = -1;
 	let stableFrames = 0;
-	for (let frame = 0; frame < maxFrames && stableFrames < 3; frame++) {
+	let frame = 0;
+	for (; frame < maxFrames && stableFrames < 3; frame++) {
 		await nextFrame();
 		const height = widget.contentHeight;
 		if (height === previousHeight) {
@@ -60,9 +61,15 @@ async function waitForStableLayout(widget: ChatListWidget, maxFrames = 120): Pro
 			stableFrames = 0;
 		}
 	}
+	if (stableFrames < 3) {
+		throw new Error(`ChatListWidget contentHeight did not settle after ${frame} frames (last height=${previousHeight})`);
+	}
 }
 
-suite('ChatListWidget', () => {
+suite('ChatListWidget', function () {
+	// Sticky-scroll and markdown layout settle across many animation frames; headless Electron
+	// often needs well over mocha's 5s default (observed ~19s for the bubble sticky source test).
+	this.timeout(30_000);
 	const store = ensureNoDisposablesAreLeakedInTestSuite();
 
 	function createWidget(options: IChatListWidgetOptions = {}, configure?: (configurationService: TestConfigurationService) => void, isSessionsWindow = false) {

@@ -10,6 +10,7 @@ import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../../base/
 import { ChatMicrosoftAuthenticationEnabledSettingId } from '../../../../../../platform/chat/common/chatSettings.js';
 import { IConfigurationService } from '../../../../../../platform/configuration/common/configuration.js';
 import { TestConfigurationService } from '../../../../../../platform/configuration/test/common/testConfigurationService.js';
+import product from '../../../../../../platform/product/common/product.js';
 import { TelemetryLevel } from '../../../../../../platform/telemetry/common/telemetry.js';
 import { ChatEntitlement } from '../../../../../services/chat/common/chatEntitlementService.js';
 import { buildUpgradeUrlWithRedirect, ChatSetupStrategy, IChatSetupRunOptions } from '../../../browser/chatSetup/chatSetup.js';
@@ -39,7 +40,7 @@ suite('buildUpgradeUrlWithRedirect', () => {
 		);
 		const { redirectHost, vscodeUri } = parseRedirectUrl(result);
 		assert.strictEqual(redirectHost, 'vscode.dev');
-		assert.strictEqual(vscodeUri, 'vscode://GitHub.copilot-chat/upgrade-success');
+		assert.strictEqual(vscodeUri, `vscode://${product.defaultChatAgent!.chatExtensionId}/upgrade-success`);
 	});
 
 	test('insider quality uses insiders.vscode.dev host', () => {
@@ -50,7 +51,7 @@ suite('buildUpgradeUrlWithRedirect', () => {
 		);
 		const { redirectHost, vscodeUri } = parseRedirectUrl(result);
 		assert.strictEqual(redirectHost, 'insiders.vscode.dev');
-		assert.strictEqual(vscodeUri, 'vscode-insiders://GitHub.copilot-chat/upgrade-success');
+		assert.strictEqual(vscodeUri, `vscode-insiders://${product.defaultChatAgent!.chatExtensionId}/upgrade-success`);
 	});
 
 	test('undefined quality defaults to insiders.vscode.dev host', () => {
@@ -61,7 +62,7 @@ suite('buildUpgradeUrlWithRedirect', () => {
 		);
 		const { redirectHost, vscodeUri } = parseRedirectUrl(result);
 		assert.strictEqual(redirectHost, 'insiders.vscode.dev');
-		assert.strictEqual(vscodeUri, 'code-oss://GitHub.copilot-chat/upgrade-success');
+		assert.strictEqual(vscodeUri, `code-oss://${product.defaultChatAgent!.chatExtensionId}/upgrade-success`);
 	});
 
 	test('appends with & when base URL already has query params', () => {
@@ -90,7 +91,7 @@ suite('buildUpgradeUrlWithRedirect', () => {
 		);
 		assert.ok(result.startsWith('https://github.example.com/github-copilot/upgrade?utm_source=vscode&return_to='));
 		const { vscodeUri } = parseRedirectUrl(result);
-		assert.strictEqual(vscodeUri, 'vscode://GitHub.copilot-chat/upgrade-success');
+		assert.strictEqual(vscodeUri, `vscode://${product.defaultChatAgent!.chatExtensionId}/upgrade-success`);
 	});
 });
 
