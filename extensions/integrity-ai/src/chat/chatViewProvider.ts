@@ -5,7 +5,8 @@
 
 import * as vscode from 'vscode';
 import * as path from 'path';
-import type { ProviderRouter } from '../providers/router';
+import { getProviderConfig, type ProviderRouter } from '../providers/router';
+import { ensureOllamaModelReady, isOllamaModelReady, ollamaModelNotReadyMessage } from '../ollama/ensureOllamaModel';
 import type { Message } from '../providers/types';
 import { ChatHistory } from './chatHistory';
 import { CodebaseIndex } from '../indexing/indexManager';
@@ -118,6 +119,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 			}
 
 			const provider = await this.router.getAvailableProvider();
+			if (provider.id === 'ollama') {
+				const model = getProviderConfig().ollama.chatModel;
+				const result = await ensureOllamaModelReady(model);
+				if (!isOllamaModelReady(result)) {
+					this.view?.webview.postMessage({
+						type: 'error',
+						message: ollamaModelNotReadyMessage(model, result),
+					});
+					return;
+				}
+			}
+
 			const messages: Message[] = [
 				{ role: 'system', content: systemPrompt },
 				...this.history.getAll().slice(-20).map(m => ({

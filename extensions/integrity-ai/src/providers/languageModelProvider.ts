@@ -8,6 +8,7 @@ import type { ProviderRouter } from './router';
 import type { Message, ToolCall, ToolDefinition } from './types';
 import { estimateTokenCount } from './types';
 import { parseModelId } from './modelId';
+import { ensureOllamaModelReady, isOllamaModelReady, ollamaModelNotReadyMessage } from '../ollama/ensureOllamaModel';
 
 const VENDOR = 'integrity';
 
@@ -217,6 +218,16 @@ export class IntegrityLanguageModelProvider implements vscode.LanguageModelChatP
 		token: vscode.CancellationToken,
 	): Promise<void> {
 		const { providerId, model: modelName } = parseModelId(model.id);
+		if (providerId === 'ollama') {
+			const result = await ensureOllamaModelReady(modelName);
+			if (result.status === 'installed') {
+				this.notifyChanged();
+			}
+			if (!isOllamaModelReady(result)) {
+				throw new Error(ollamaModelNotReadyMessage(modelName, result));
+			}
+		}
+
 		const provider = this.router.getProvider(providerId);
 		const integrityMessages = vscodeMessagesToIntegrity(messages);
 		const tools = vscodeToolsToIntegrity(options.tools);

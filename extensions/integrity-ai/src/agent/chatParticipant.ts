@@ -6,6 +6,8 @@
 import * as vscode from 'vscode';
 import { loadAgentRules } from './lmTools';
 import { inferModeKind, isToolAllowedInMode, type AgentModeKind } from './toolNames';
+import { parseModelId } from '../providers/modelId';
+import { ensureOllamaModelReady, isOllamaModelReady, ollamaModelNotReadyMessage } from '../ollama/ensureOllamaModel';
 
 const DEFAULT_MAX_STEPS = 24;
 
@@ -137,6 +139,16 @@ export async function runChatAgentLoop(
 	if (!model) {
 		stream.markdown('No language model is available. Start Ollama from the Command Palette (**Integrity: Start Ollama**) or configure a BYOK provider in Integrity AI settings.');
 		return {};
+	}
+
+	const parsed = parseModelId(model.id);
+	if (model.family === 'ollama' || parsed.providerId === 'ollama') {
+		stream.progress('Checking Ollama model…');
+		const result = await ensureOllamaModelReady(parsed.model);
+		if (!isOllamaModelReady(result)) {
+			stream.markdown(`**${ollamaModelNotReadyMessage(parsed.model, result)}**`);
+			return {};
+		}
 	}
 
 	const tools = collectEnabledTools(request, mode);

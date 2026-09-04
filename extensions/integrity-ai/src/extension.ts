@@ -14,6 +14,7 @@ import { registerChatParticipant } from './agent/chatParticipant';
 import { registerIntegrityTools } from './agent/lmTools';
 import { InlineCompletionProvider } from './completion/inlineCompletionProvider';
 import { runOnboarding, setupRecommendedModels, startOllamaFromIde } from './onboarding/setupModels';
+import { registerOllamaModelInstallPrompt } from './ollama/ensureOllamaModel';
 import { registerAgentDiffProvider } from './agent/diffProvider';
 
 let chatProvider: ChatViewProvider;
@@ -26,6 +27,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	const agent = new AgentLoop(router, index);
 
 	registerLanguageModelProvider(context, router);
+	registerOllamaModelInstallPrompt(context);
 	registerIntegrityTools(context, index);
 	registerChatParticipant(context);
 
