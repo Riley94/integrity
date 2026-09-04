@@ -105,7 +105,7 @@ export class TestExtensionEnablementService extends ExtensionEnablementService {
 			chatEntitlementService ?? new TestChatEntitlementService(),
 			instantiationService,
 			new NullLogService(),
-			productService
+			instantiationService.get(IProductService) || productService
 		);
 		this._register(disposables);
 	}
@@ -1187,7 +1187,18 @@ suite('ExtensionEnablementService Test', () => {
 	});
 
 	test('test chat extension is disabled on profile switch when setup is not completed', async () => {
-		const chatExtensionId = productService.defaultChatAgent!.chatExtensionId;
+		const copilotProduct = {
+			...productService,
+			defaultChatAgent: {
+				...productService.defaultChatAgent!,
+				extensionId: 'GitHub.copilot',
+				chatExtensionId: 'GitHub.copilot-chat',
+				entitlementUrl: 'https://api.github.com/copilot_internal/user',
+			}
+		};
+		instantiationService.stub(IProductService, copilotProduct);
+
+		const chatExtensionId = copilotProduct.defaultChatAgent.chatExtensionId;
 		const chatExtension = aLocalExtension(chatExtensionId, undefined, ExtensionType.System);
 		installed.push(chatExtension);
 
@@ -1215,6 +1226,79 @@ suite('ExtensionEnablementService Test', () => {
 
 		// Chat extension should be disabled again after computing enablement state
 		assert.strictEqual(testObject.getEnablementState(chatExtension), EnablementState.DisabledGlobally);
+	});
+
+	test('local-first default chat extension stays enabled when product has no entitlement URL', async () => {
+		const chatExtensionId = productService.defaultChatAgent!.chatExtensionId;
+		const chatExtension = aLocalExtension(chatExtensionId, undefined, ExtensionType.System);
+		installed.push(chatExtension);
+
+		const storageService = instantiationService.get(IStorageService);
+		storageService.store('builtinChatExtensionEnablementMigration', false, StorageScope.PROFILE, StorageTarget.MACHINE);
+		storageService.store('localFirstChatExtensionEnablementMigration', false, StorageScope.PROFILE, StorageTarget.MACHINE);
+
+		const chatEntitlementService = new TestChatEntitlementService();
+		chatEntitlementService.context = new Lazy(() => ({ state: { completed: false }, onDidChange: Event.None })) as unknown as Lazy<ChatEntitlementContext>;
+
+		testObject = disposableStore.add(new TestExtensionEnablementService(instantiationService, chatEntitlementService));
+		await testObject.waitUntilInitialized();
+
+		assert.strictEqual(testObject.getEnablementState(chatExtension), EnablementState.EnabledGlobally);
+	});
+
+	test('local-first default chat extension is re-enabled after Copilot setup migration', async () => {
+		const chatExtensionId = productService.defaultChatAgent!.chatExtensionId;
+		const chatExtension = aLocalExtension(chatExtensionId, undefined, ExtensionType.System);
+		installed.push(chatExtension);
+
+		await testObject.setEnablement([chatExtension], EnablementState.DisabledGlobally);
+		assert.strictEqual(testObject.getEnablementState(chatExtension), EnablementState.DisabledGlobally);
+
+		const storageService = instantiationService.get(IStorageService);
+		storageService.store('builtinChatExtensionEnablementMigration', true, StorageScope.PROFILE, StorageTarget.MACHINE);
+		storageService.store('localFirstChatExtensionEnablementMigration', false, StorageScope.PROFILE, StorageTarget.MACHINE);
+
+		testObject = disposableStore.add(new TestExtensionEnablementService(instantiationService));
+		await testObject.waitUntilInitialized();
+
+		assert.strictEqual(testObject.getEnablementState(chatExtension), EnablementState.EnabledGlobally);
+	});
+
+	test('unification does not disable a combined chat+completions extension', async () => {
+		const config = instantiationService.get(IConfigurationService) as TestConfigurationService;
+		config.setUserConfiguration('chat.extensionUnification.enabled', true);
+
+		const chatExtensionId = productService.defaultChatAgent!.chatExtensionId;
+		const chatExtension = aLocalExtension(chatExtensionId, undefined, ExtensionType.System);
+		installed.push(chatExtension);
+
+		testObject = disposableStore.add(new TestExtensionEnablementService(instantiationService));
+		await testObject.waitUntilInitialized();
+
+		assert.strictEqual(testObject.getEnablementState(chatExtension), EnablementState.EnabledGlobally);
+	});
+
+	test('unification disables a separate completions extension', async () => {
+		instantiationService.stub(IProductService, {
+			...productService,
+			defaultChatAgent: {
+				...productService.defaultChatAgent!,
+				extensionId: 'GitHub.copilot',
+				chatExtensionId: 'GitHub.copilot-chat',
+			}
+		});
+		const config = instantiationService.get(IConfigurationService) as TestConfigurationService;
+		config.setUserConfiguration('chat.extensionUnification.enabled', true);
+
+		const completions = aLocalExtension('GitHub.copilot', undefined, ExtensionType.User);
+		const chat = aLocalExtension('GitHub.copilot-chat', undefined, ExtensionType.System);
+		installed.push(completions, chat);
+
+		testObject = disposableStore.add(new TestExtensionEnablementService(instantiationService));
+		await testObject.waitUntilInitialized();
+
+		assert.strictEqual(testObject.getEnablementState(completions), EnablementState.DisabledByUnification);
+		assert.strictEqual(testObject.getEnablementState(chat), EnablementState.EnabledGlobally);
 	});
 
 	test('test extension is disabled by allowed list', async () => {

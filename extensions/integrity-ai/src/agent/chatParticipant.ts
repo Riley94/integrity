@@ -135,7 +135,7 @@ export async function runChatAgentLoop(
 
 	const model = request.model;
 	if (!model) {
-		stream.markdown('No language model is available. Configure Ollama or a BYOK provider in Integrity AI settings.');
+		stream.markdown('No language model is available. Start Ollama from the Command Palette (**Integrity: Start Ollama**) or configure a BYOK provider in Integrity AI settings.');
 		return {};
 	}
 

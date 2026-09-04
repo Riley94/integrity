@@ -13,7 +13,7 @@ import { AgentLoop } from './agent/agentLoop';
 import { registerChatParticipant } from './agent/chatParticipant';
 import { registerIntegrityTools } from './agent/lmTools';
 import { InlineCompletionProvider } from './completion/inlineCompletionProvider';
-import { runOnboarding, setupRecommendedModels } from './onboarding/setupModels';
+import { runOnboarding, setupRecommendedModels, startOllamaFromIde } from './onboarding/setupModels';
 import { registerAgentDiffProvider } from './agent/diffProvider';
 
 let chatProvider: ChatViewProvider;
@@ -47,6 +47,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 			vscode.commands.executeCommand('integrity.ai.chatView.focus');
 		}),
 		vscode.commands.registerCommand('integrity.ai.testConnection', () => testConnection(router)),
+		vscode.commands.registerCommand('integrity.ai.startOllama', () => startOllamaFromIde()),
 		vscode.commands.registerCommand('integrity.ai.setupModels', () => setupRecommendedModels()),
 		vscode.commands.registerCommand('integrity.ai.reindexCodebase', () => reindex(index)),
 		vscode.commands.registerCommand('integrity.ai.toggleAgentMode', () => chatProvider.toggleAgentMode()),

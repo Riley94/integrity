@@ -25,7 +25,7 @@ Project indexes are stored in `.integrity/index/` inside your workspace.
 | Node.js | 24.x (see `.nvmrc`) |
 | Python | 3.11+ |
 | npm | bundled with Node.js |
-| Ollama | [ollama.com](https://ollama.com) (for local AI) |
+| Ollama | [ollama.com](https://ollama.com) (install once; start it from the IDE) |
 
 ### Linux build dependencies
 
@@ -54,7 +54,10 @@ npm run watch       # Terminal 1: continuous compile
 
 ```bash
 ./scripts/setup-models.sh
-# Or from inside the IDE: Command Palette → "Integrity: Setup Recommended Models"
+# Or from inside the IDE:
+#   Command Palette → "Integrity: Start Ollama"
+#   Command Palette → "Integrity: Setup Recommended Models"
+# Setup Models will start a local Ollama server when it is not already running.
 ```
 
 Recommended stack:

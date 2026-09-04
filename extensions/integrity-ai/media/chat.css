@@ -27,8 +27,13 @@ body {
 	opacity: 0.9;
 }
 
-#open-native {
-	align-self: flex-start;
+#banner-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+#banner-actions button {
 	background: var(--vscode-button-background);
 	color: var(--vscode-button-foreground);
 	border: none;
@@ -37,8 +42,17 @@ body {
 	cursor: pointer;
 }
 
-#open-native:hover {
+#banner-actions button:hover {
 	background: var(--vscode-button-hoverBackground);
+}
+
+#banner-actions button.secondary {
+	background: var(--vscode-button-secondaryBackground);
+	color: var(--vscode-button-secondaryForeground);
+}
+
+#banner-actions button.secondary:hover {
+	background: var(--vscode-button-secondaryHoverBackground);
 }
 
 #messages {

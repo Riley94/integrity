@@ -56,6 +56,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 				case 'openNativeChat':
 					await vscode.commands.executeCommand('integrity.ai.openChat');
 					break;
+				case 'startOllama':
+					await vscode.commands.executeCommand('integrity.ai.startOllama');
+					break;
+				case 'setupModels':
+					await vscode.commands.executeCommand('integrity.ai.setupModels');
+					break;
 				case 'applyCode':
 					await vscode.commands.executeCommand('integrity.ai.applyCodeBlock', msg.code, msg.language);
 					break;
@@ -222,7 +228,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 <body>
 	<div id="banner">
 		<p><strong>Agentic coding</strong> now lives in the native Chat panel (Ask / Edit / Agent).</p>
-		<button id="open-native">Open Chat (Agent)</button>
+		<div id="banner-actions">
+			<button id="open-native">Open Chat (Agent)</button>
+			<button id="start-ollama" class="secondary">Start Ollama</button>
+			<button id="setup-models" class="secondary">Setup Models</button>
+		</div>
 	</div>
 	<div id="messages"></div>
 	<div id="input-area">

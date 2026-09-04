@@ -322,9 +322,16 @@
         "category": "Integrity"
       },
       {
+        "command": "integrity.ai.startOllama",
+        "title": "Start Ollama",
+        "category": "Integrity",
+        "icon": "$(play)"
+      },
+      {
         "command": "integrity.ai.setupModels",
         "title": "Setup Recommended Models (Ollama)",
-        "category": "Integrity"
+        "category": "Integrity",
+        "icon": "$(cloud-download)"
       },
       {
         "command": "integrity.ai.reindexCodebase",
@@ -362,6 +369,20 @@
           "type": "webview",
           "id": "integrity.ai.chatView",
           "name": "Status"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "integrity.ai.startOllama",
+          "when": "view == integrity.ai.chatView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "integrity.ai.setupModels",
+          "when": "view == integrity.ai.chatView",
+          "group": "navigation@2"
         }
       ]
     },

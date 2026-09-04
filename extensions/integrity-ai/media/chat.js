@@ -6,6 +6,8 @@
 	const clearBtn = document.getElementById('clear');
 	const agentCheckbox = document.getElementById('agent-mode');
 	const openNativeBtn = document.getElementById('open-native');
+	const startOllamaBtn = document.getElementById('start-ollama');
+	const setupModelsBtn = document.getElementById('setup-models');
 	const activeMentions = new Set();
 
 	let streamingEl = null;
@@ -14,6 +16,16 @@
 	if (openNativeBtn) {
 		openNativeBtn.addEventListener('click', () => {
 			vscode.postMessage({ type: 'openNativeChat' });
+		});
+	}
+	if (startOllamaBtn) {
+		startOllamaBtn.addEventListener('click', () => {
+			vscode.postMessage({ type: 'startOllama' });
+		});
+	}
+	if (setupModelsBtn) {
+		setupModelsBtn.addEventListener('click', () => {
+			vscode.postMessage({ type: 'setupModels' });
 		});
 	}
 	document.querySelectorAll('.mention').forEach(btn => {
