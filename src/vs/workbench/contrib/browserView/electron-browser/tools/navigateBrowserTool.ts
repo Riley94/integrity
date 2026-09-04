@@ -22,7 +22,7 @@ export const NavigateBrowserToolData: IToolData = {
 	toolReferenceName: BrowserChatToolReferenceName.NavigatePage,
 	displayName: localize('navigateBrowserTool.displayName', 'Navigate Page'),
 	userDescription: localize('navigateBrowserTool.userDescription', 'Navigate or reload a browser page'),
-	modelDescription: 'Navigate a browser page by URL, history, or reload.',
+	modelDescription: 'Navigate a browser page by URL, history, or reload. Does not write workspace files.',
 	icon: Codicon.arrowRight,
 	source: ToolDataSource.Internal,
 	inputSchema: {

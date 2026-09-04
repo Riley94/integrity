@@ -18,7 +18,7 @@ export const ClickBrowserToolData: IToolData = {
 	toolReferenceName: BrowserChatToolReferenceName.ClickElement,
 	displayName: localize('clickBrowserTool.displayName', 'Click Element'),
 	userDescription: localize('clickBrowserTool.userDescription', 'Click an element in a browser page'),
-	modelDescription: 'Click on an element in a browser page.',
+	modelDescription: 'Click on an element in a browser page. Does not write workspace files.',
 	icon: Codicon.cursor,
 	source: ToolDataSource.Internal,
 	inputSchema: {

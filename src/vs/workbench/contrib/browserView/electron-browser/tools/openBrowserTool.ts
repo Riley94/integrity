@@ -41,7 +41,8 @@ export const OpenBrowserToolData: IToolData = {
 May prompt the user to share a page if there is a similar one already open, unless "forceNew" is true.
 Returns a page ID that must be used with other browser tools to interact with the page, as well as an accessibility snapshot of the page.
 
-Important: Prefer to reuse existing pages whenever possible and only call this tool if you do not already have access to a tab you can reuse.`,
+Important: Prefer to reuse existing pages whenever possible and only call this tool if you do not already have access to a tab you can reuse.
+This tool does not create or edit workspace files. Do not pass a source path (for example main.py) as url — use Integrity file tools instead.`,
 	icon: Codicon.openInProduct,
 	source: ToolDataSource.Internal,
 	inputSchema: {

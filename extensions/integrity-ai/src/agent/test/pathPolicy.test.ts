@@ -6,6 +6,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+	applyPatchHunks,
 	applyUniqueReplace,
 	countOccurrences,
 	isSensitivePath,
@@ -52,6 +53,55 @@ describe('applyUniqueReplace', () => {
 		if (!result.ok) {
 			assert.match(result.error, /3 times/);
 		}
+	});
+});
+
+describe('applyPatchHunks', () => {
+	it('creates a missing file with empty oldText on the first hunk', () => {
+		const result = applyPatchHunks(undefined, [{ newText: 'print(1)\n' }]);
+		assert.deepEqual(result, { ok: true, updated: 'print(1)\n', created: true });
+	});
+
+	it('appends to an existing file with empty oldText', () => {
+		const result = applyPatchHunks('hello\n', [{ newText: 'world\n' }]);
+		assert.deepEqual(result, { ok: true, updated: 'hello\nworld\n', created: false });
+	});
+
+	it('applies sequential unique replaces', () => {
+		const result = applyPatchHunks('alpha beta gamma', [
+			{ oldText: 'alpha', newText: 'A' },
+			{ oldText: 'gamma', newText: 'G' },
+		]);
+		assert.deepEqual(result, { ok: true, updated: 'A beta G', created: false });
+	});
+
+	it('fails on missing oldText without applying later hunks', () => {
+		const result = applyPatchHunks('keep me', [
+			{ oldText: 'missing', newText: 'x' },
+			{ oldText: 'keep me', newText: 'changed' },
+		]);
+		assert.equal(result.ok, false);
+		if (!result.ok) {
+			assert.match(result.error, /hunk 0/);
+			assert.match(result.error, /not found/);
+		}
+	});
+
+	it('fails on ambiguous oldText without partial apply', () => {
+		const result = applyPatchHunks('aaa', [
+			{ oldText: 'a', newText: 'b' },
+			{ newText: 'tail' },
+		]);
+		assert.equal(result.ok, false);
+		if (!result.ok) {
+			assert.match(result.error, /hunk 0/);
+			assert.match(result.error, /3 times/);
+		}
+	});
+
+	it('rejects empty hunks', () => {
+		const result = applyPatchHunks('x', []);
+		assert.equal(result.ok, false);
 	});
 });
 

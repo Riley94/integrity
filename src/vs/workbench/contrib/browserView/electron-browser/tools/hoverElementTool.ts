@@ -18,7 +18,7 @@ export const HoverElementToolData: IToolData = {
 	toolReferenceName: BrowserChatToolReferenceName.HoverElement,
 	displayName: localize('hoverElementTool.displayName', 'Hover Element'),
 	userDescription: localize('hoverElementTool.userDescription', 'Hover over an element in a browser page'),
-	modelDescription: 'Hover over an element in a browser page. Provide either a Playwright selector or an element reference.',
+	modelDescription: 'Hover over an element in a browser page. Provide either a Playwright selector or an element reference. Does not write workspace files.',
 	icon: Codicon.cursor,
 	source: ToolDataSource.Internal,
 	inputSchema: {

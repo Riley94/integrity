@@ -4,40 +4,14 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as vscode from 'vscode';
+import { buildSystemPrompt } from './agentPrompt';
+import { rejectionForBrowserToolCall } from './browserToolGuard';
 import { loadAgentRules } from './lmTools';
 import { inferModeKind, isToolAllowedInMode, type AgentModeKind } from './toolNames';
 import { parseModelId } from '../providers/modelId';
 import { ensureOllamaModelReady, isOllamaModelReady, ollamaModelNotReadyMessage } from '../ollama/ensureOllamaModel';
 
 const DEFAULT_MAX_STEPS = 24;
-
-function modeSystemPrompt(mode: AgentModeKind): string {
-	switch (mode) {
-		case 'ask':
-			return 'You are in Ask mode: answer questions using read-only tools only. Do not edit files or run terminal commands.';
-		case 'edit':
-			return 'You are in Edit mode: you may read and edit files. Do not run terminal commands.';
-		case 'agent':
-		default:
-			return 'You are in Agent mode: you may read/edit files, search the codebase, manage todos, and run terminal commands when needed. Prefer small, correct edits. Explain briefly when done.';
-	}
-}
-
-function buildSystemPrompt(mode: AgentModeKind, agentRules: string, extraContext: string): string {
-	const parts = [
-		'You are Integrity AI, a local-first coding assistant built into Integrity IDE.',
-		modeSystemPrompt(mode),
-		'Use tools when you need workspace information or to make changes. Prefer integrity_* tools for file operations.',
-		'Be concise. Use markdown code fences with language tags when showing code.',
-	];
-	if (agentRules.trim()) {
-		parts.push('\n--- Project agent rules ---\n' + agentRules.trim());
-	}
-	if (extraContext.trim()) {
-		parts.push('\n--- Context ---\n' + extraContext.trim());
-	}
-	return parts.join('\n');
-}
 
 function collectEnabledTools(
 	request: vscode.ChatRequest,
@@ -223,6 +197,13 @@ export async function runChatAgentLoop(
 				return {};
 			}
 			stream.progress(`Running \`${call.name}\`…`);
+			const rejected = rejectionForBrowserToolCall(call.name, call.input);
+			if (rejected) {
+				resultParts.push(new vscode.LanguageModelToolResultPart(call.callId, [
+					new vscode.LanguageModelTextPart(rejected),
+				]));
+				continue;
+			}
 			try {
 				const result = await vscode.lm.invokeTool(call.name, {
 					input: call.input,

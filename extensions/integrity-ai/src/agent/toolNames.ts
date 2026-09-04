@@ -11,6 +11,7 @@ export const IntegrityToolName = {
 	ListDir: 'integrity_list_dir',
 	CreateFile: 'integrity_create_file',
 	ReplaceString: 'integrity_replace_string',
+	ApplyPatch: 'integrity_apply_patch',
 	GrepSearch: 'integrity_grep_search',
 	FileSearch: 'integrity_file_search',
 	CodebaseSearch: 'integrity_codebase_search',
@@ -33,6 +34,7 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
 export const EDIT_TOOLS: ReadonlySet<string> = new Set([
 	IntegrityToolName.CreateFile,
 	IntegrityToolName.ReplaceString,
+	IntegrityToolName.ApplyPatch,
 ]);
 
 /**

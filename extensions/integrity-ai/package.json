@@ -139,7 +139,7 @@
         "name": "integrity_read_file",
         "toolReferenceName": "readFile",
         "displayName": "Read File",
-        "modelDescription": "Read a workspace-relative file. Returns file contents (truncated).",
+        "modelDescription": "Read a workspace-relative file before editing when it may already exist. Returns file contents (truncated). Prefer this over browser tools for inspecting source files.",
         "icon": "$(file)",
         "inputSchema": {
           "type": "object",
@@ -174,7 +174,7 @@
         "name": "integrity_create_file",
         "toolReferenceName": "createFile",
         "displayName": "Create File",
-        "modelDescription": "Create a new file with the given content. Fails if the file exists unless overwrite is true.",
+        "modelDescription": "Create a brand-new file with the given content. Use only when the path does not exist yet; if it already exists, use integrity_apply_patch instead. Fails if the file exists unless overwrite is true.",
         "icon": "$(new-file)",
         "inputSchema": {
           "type": "object",
@@ -200,7 +200,7 @@
         "name": "integrity_replace_string",
         "toolReferenceName": "replaceString",
         "displayName": "Replace String In File",
-        "modelDescription": "Replace a unique oldText with newText in a file. Fails if oldText is missing or appears more than once.",
+        "modelDescription": "Replace a unique oldText with newText in a file. Use only for an exact in-place swap when oldText appears once. Do not use this (or browser/Playwright tools) to append or add new code — prefer integrity_apply_patch. Fails if oldText is missing or appears more than once.",
         "icon": "$(replace)",
         "inputSchema": {
           "type": "object",
@@ -219,6 +219,42 @@
             }
           },
           "required": ["path", "oldText", "newText"]
+        },
+        "tags": ["integrity"]
+      },
+      {
+        "name": "integrity_apply_patch",
+        "toolReferenceName": "applyPatch",
+        "displayName": "Apply Patch",
+        "modelDescription": "Preferred way to add code to an existing file, insert or replace unique spans, or create a missing file. Pass ordered hunks: empty/omitted oldText appends (or creates if missing); non-empty oldText must match uniquely. Not for browsing, running code, or driving a web page.",
+        "icon": "$(diff)",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Workspace-relative file path"
+            },
+            "hunks": {
+              "type": "array",
+              "description": "Ordered patch hunks applied left-to-right",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "oldText": {
+                    "type": "string",
+                    "description": "Unique text to replace. Omit or leave empty to append (or create the file on the first hunk)."
+                  },
+                  "newText": {
+                    "type": "string",
+                    "description": "Replacement or appended text"
+                  }
+                },
+                "required": ["newText"]
+              }
+            }
+          },
+          "required": ["path", "hunks"]
         },
         "tags": ["integrity"]
       },

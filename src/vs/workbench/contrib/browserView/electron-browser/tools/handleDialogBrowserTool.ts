@@ -18,7 +18,7 @@ export const HandleDialogBrowserToolData: IToolData = {
 	toolReferenceName: BrowserChatToolReferenceName.HandleDialog,
 	displayName: localize('handleDialogBrowserTool.displayName', 'Handle Dialog'),
 	userDescription: localize('handleDialogBrowserTool.userDescription', 'Respond to a dialog in a browser page'),
-	modelDescription: 'Respond to a pending modal (alert, confirm, prompt) or file chooser dialog on a browser page.',
+	modelDescription: 'Respond to a pending modal (alert, confirm, prompt) or file chooser dialog on a browser page. Does not write workspace files.',
 	icon: Codicon.comment,
 	source: ToolDataSource.Internal,
 	inputSchema: {

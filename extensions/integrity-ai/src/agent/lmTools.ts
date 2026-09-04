@@ -5,9 +5,11 @@
 
 import * as vscode from 'vscode';
 import {
+	applyPatchHunks,
 	applyUniqueReplace,
 	isSensitivePath,
 	normalizeWorkspaceRelativePath,
+	type PatchHunk,
 } from './pathPolicy';
 import { IntegrityToolName } from './toolNames';
 
@@ -194,6 +196,68 @@ class ReplaceStringTool implements vscode.LanguageModelTool<{ path: string; oldT
 	}
 }
 
+class ApplyPatchTool implements vscode.LanguageModelTool<{ path: string; hunks: PatchHunk[] }> {
+	async invoke(
+		options: vscode.LanguageModelToolInvocationOptions<{ path: string; hunks: PatchHunk[] }>,
+		_token: vscode.CancellationToken,
+	): Promise<vscode.LanguageModelToolResult> {
+		const relative = normalizeWorkspaceRelativePath(options.input?.path ?? '');
+		if (!relative) {
+			return textResult('Invalid path.');
+		}
+		const uri = resolveUri(relative);
+		if (!uri) {
+			return textResult('No workspace open.');
+		}
+
+		const hunks = Array.isArray(options.input?.hunks) ? options.input.hunks : [];
+		if (!hunks.length) {
+			return textResult('hunks must be a non-empty array.');
+		}
+
+		let existing: string | undefined;
+		try {
+			const bytes = await vscode.workspace.fs.readFile(uri);
+			existing = Buffer.from(bytes).toString('utf8');
+		} catch {
+			existing = undefined;
+		}
+
+		const result = applyPatchHunks(existing, hunks);
+		if (!result.ok) {
+			return textResult(result.error);
+		}
+
+		const requireApproval = vscode.workspace.getConfiguration('integrity.ai').get<boolean>('agent.requireEditApproval', true);
+		const actionLabel = result.created ? `Create file ${relative}?` : `Apply patch to ${relative}?`;
+		if (requireApproval) {
+			const approved = await vscode.window.showInformationMessage(
+				actionLabel,
+				{ modal: true },
+				'Apply',
+				'Cancel',
+			);
+			if (approved !== 'Apply') {
+				return textResult('Patch cancelled by user.');
+			}
+		}
+
+		const edit = new vscode.WorkspaceEdit();
+		if (result.created) {
+			edit.createFile(uri, { overwrite: false, contents: Buffer.from(result.updated) });
+		} else {
+			const doc = await vscode.workspace.openTextDocument(uri);
+			const fullRange = new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length));
+			edit.replace(uri, fullRange, result.updated);
+		}
+		const ok = await vscode.workspace.applyEdit(edit);
+		if (!ok) {
+			return textResult(`Failed to apply patch to ${relative}`);
+		}
+		return textResult(result.created ? `Created ${relative}` : `Updated ${relative}`);
+	}
+}
+
 class GrepSearchTool implements vscode.LanguageModelTool<{ pattern: string; glob?: string; maxResults?: number }> {
 	async invoke(
 		options: vscode.LanguageModelToolInvocationOptions<{ pattern: string; glob?: string; maxResults?: number }>,
@@ -324,6 +388,7 @@ export function registerIntegrityTools(
 		vscode.lm.registerTool(IntegrityToolName.ListDir, new ListDirTool()),
 		vscode.lm.registerTool(IntegrityToolName.CreateFile, new CreateFileTool()),
 		vscode.lm.registerTool(IntegrityToolName.ReplaceString, new ReplaceStringTool()),
+		vscode.lm.registerTool(IntegrityToolName.ApplyPatch, new ApplyPatchTool()),
 		vscode.lm.registerTool(IntegrityToolName.GrepSearch, new GrepSearchTool()),
 		vscode.lm.registerTool(IntegrityToolName.FileSearch, new FileSearchTool()),
 		vscode.lm.registerTool(IntegrityToolName.CodebaseSearch, new CodebaseSearchTool(index)),

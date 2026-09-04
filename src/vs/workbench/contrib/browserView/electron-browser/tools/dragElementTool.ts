@@ -18,7 +18,7 @@ export const DragElementToolData: IToolData = {
 	toolReferenceName: BrowserChatToolReferenceName.DragElement,
 	displayName: localize('dragElementTool.displayName', 'Drag Element'),
 	userDescription: localize('dragElementTool.userDescription', 'Drag an element over another element'),
-	modelDescription: 'Drag an element over another element in a browser page.',
+	modelDescription: 'Drag an element over another element in a browser page. Does not write workspace files.',
 	icon: Codicon.move,
 	source: ToolDataSource.Internal,
 	inputSchema: {

@@ -83,3 +83,67 @@ export function applyUniqueReplace(
 	}
 	return { ok: true, updated: content.replace(oldText, newText) };
 }
+
+/**
+ * A single JSON hunk for {@link applyPatchHunks}.
+ * Empty/omitted `oldText` means append (or create when the file is missing).
+ */
+export interface PatchHunk {
+	oldText?: string;
+	newText: string;
+}
+
+export type ApplyPatchHunksResult =
+	| { ok: true; updated: string; created: boolean }
+	| { ok: false; error: string };
+
+/**
+ * Apply ordered patch hunks to an optional existing file buffer.
+ *
+ * - Missing file + first hunk with empty oldText → create with newText.
+ * - Existing file + empty oldText → append newText.
+ * - Non-empty oldText → unique replace (fails with no partial apply of later hunks).
+ */
+export function applyPatchHunks(
+	existingContent: string | undefined,
+	hunks: readonly PatchHunk[],
+): ApplyPatchHunksResult {
+	if (!hunks.length) {
+		return { ok: false, error: 'hunks must be a non-empty array.' };
+	}
+
+	const fileExists = existingContent !== undefined;
+	let updated = existingContent ?? '';
+	let created = false;
+
+	for (let i = 0; i < hunks.length; i++) {
+		const hunk = hunks[i];
+		const newText = typeof hunk?.newText === 'string' ? hunk.newText : '';
+		const oldText = typeof hunk?.oldText === 'string' ? hunk.oldText : '';
+
+		if (!oldText) {
+			if (!fileExists && i === 0 && !created) {
+				updated = newText;
+				created = true;
+				continue;
+			}
+			if (!fileExists && !created) {
+				return { ok: false, error: `hunk ${i}: cannot append to a missing file; use empty oldText on the first hunk to create it.` };
+			}
+			updated = updated + newText;
+			continue;
+		}
+
+		if (!fileExists && !created) {
+			return { ok: false, error: `hunk ${i}: file does not exist; use empty oldText on the first hunk to create it, or create the file first.` };
+		}
+
+		const replaced = applyUniqueReplace(updated, oldText, newText);
+		if (!replaced.ok) {
+			return { ok: false, error: `hunk ${i}: ${replaced.error}` };
+		}
+		updated = replaced.updated;
+	}
+
+	return { ok: true, updated, created };
+}

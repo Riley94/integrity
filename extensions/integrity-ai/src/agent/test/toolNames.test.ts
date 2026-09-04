@@ -24,4 +24,10 @@ describe('isToolAllowedInMode', () => {
 		assert.equal(isToolAllowedInMode('run_in_terminal', 'edit'), false);
 		assert.equal(isToolAllowedInMode('run_in_terminal', 'agent'), true);
 	});
+
+	it('allows integrity_apply_patch in edit/agent and blocks it in ask', () => {
+		assert.equal(isToolAllowedInMode(IntegrityToolName.ApplyPatch, 'ask'), false);
+		assert.equal(isToolAllowedInMode(IntegrityToolName.ApplyPatch, 'edit'), true);
+		assert.equal(isToolAllowedInMode(IntegrityToolName.ApplyPatch, 'agent'), true);
+	});
 });
