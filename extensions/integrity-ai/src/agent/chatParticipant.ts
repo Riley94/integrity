@@ -5,7 +5,7 @@
 
 import * as vscode from 'vscode';
 import { buildSystemPrompt } from './agentPrompt';
-import { rejectionForBrowserToolCall } from './browserToolGuard';
+import { rejectionForMisroutedToolCall } from './browserToolGuard';
 import { loadAgentRules } from './lmTools';
 import { inferModeKind, isToolAllowedInMode, type AgentModeKind } from './toolNames';
 import { parseModelId } from '../providers/modelId';
@@ -196,8 +196,16 @@ export async function runChatAgentLoop(
 			if (token.isCancellationRequested) {
 				return {};
 			}
+			if (!call.name?.trim()) {
+				resultParts.push(new vscode.LanguageModelToolResultPart(call.callId, [
+					new vscode.LanguageModelTextPart(
+						'Tool error: empty tool name. Call integrity_apply_patch with path and hunks/patch, or another integrity_* tool.',
+					),
+				]));
+				continue;
+			}
 			stream.progress(`Running \`${call.name}\`…`);
-			const rejected = rejectionForBrowserToolCall(call.name, call.input);
+			const rejected = rejectionForMisroutedToolCall(call.name, call.input);
 			if (rejected) {
 				resultParts.push(new vscode.LanguageModelToolResultPart(call.callId, [
 					new vscode.LanguageModelTextPart(rejected),

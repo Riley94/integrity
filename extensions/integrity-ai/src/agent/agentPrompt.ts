@@ -26,7 +26,8 @@ export function modeSystemPrompt(mode: AgentModeKind): string {
 export const TOOL_DECISION_GUIDE = [
 	'Tool choice guide:',
 	'- Read / find: integrity_read_file, integrity_list_dir, integrity_file_search, integrity_grep_search, integrity_codebase_search.',
-	'- Change files: prefer integrity_apply_patch to add, insert, create, or update file content. Use integrity_replace_string only for a unique in-place swap. Use integrity_create_file only for a brand-new path that does not exist yet. Read a file with integrity_read_file before editing when it may already exist.',
+	'- Change files: prefer integrity_apply_patch. To add code: { "path": "main.py", "hunks": [{ "newText": "<code>" }] } or { "path": "main.py", "patch": "<code>" }. For a unique swap use hunks with oldText. Use integrity_replace_string only for an exact in-place swap. Use integrity_create_file only for a brand-new path. Read with integrity_read_file before editing when the file may already exist.',
+	'- Paths: always pass a workspace-relative path in "path" (e.g. path: "main.py" or path: "src/main.py"). Never invent placeholders like /path/to/main.py. When the user names a file, use that basename (or integrity_file_search with **/name) — do not ask the user for the path with vscode_askQuestions.',
 	'- Shell: run_in_terminal (Agent mode only).',
 	'- Browser: open_browser_page / run_playwright_code only when the user asked to open or drive a web page. Never use browser tools to author or edit workspace files.',
 ].join('\n');

@@ -12,6 +12,11 @@ const FILE_EDIT_REJECTION =
 	'Tool error: browser tools do not create or edit workspace files. ' +
 	'Use integrity_read_file then integrity_apply_patch (or integrity_replace_string / integrity_create_file) instead.';
 
+const PATH_FISHING_REJECTION =
+	'Tool error: do not ask the user for a file path. ' +
+	'Use integrity_file_search (e.g. glob "**/main.py") or pass a workspace-relative path like "main.py", ' +
+	'then integrity_read_file / integrity_apply_patch / integrity_create_file. Never invent placeholders like /path/to/file.';
+
 const PAGE_REF = /\bpage\s*\.|await\s+page\b|\bpage\s*\)/;
 
 const WORKSPACE_SOURCE = /\bdef\s+\w+\s*\(|\bprint\s*\(|\binput\s*\(|\bif\s+__name__\b|^\s*import\s+\w+|^\s*from\s+\w+\s+import\b|#!\/usr/m;
@@ -19,6 +24,8 @@ const WORKSPACE_SOURCE = /\bdef\s+\w+\s*\(|\bprint\s*\(|\binput\s*\(|\bif\s+__na
 const SOURCE_FILE_PATH = /\.(py|ts|tsx|js|jsx|mjs|cjs|java|go|rs|rb|php|cs|cpp|c|h|hpp|md|txt|json|yml|yaml|toml|sh)$/i;
 
 const BROWSER_URL_SCHEME = /^(https?|file|about):/i;
+
+const PATH_FISHING_QUESTION = /file\s*path|workspace[- ]relative\s*path|correct\s*(file\s*)?path|path\s*to\s*(the\s*)?file|provide\s+(the\s+)?(correct\s+)?(file\s*)?path|which\s+file/i;
 
 function asRecord(input: unknown): Record<string, unknown> {
 	if (input && typeof input === 'object' && !Array.isArray(input)) {
@@ -90,4 +97,45 @@ export function rejectionForBrowserToolCall(toolName: string, input: unknown): s
 	}
 
 	return undefined;
+}
+
+/**
+ * Reject vscode_askQuestions that only fish for a file path the agent should resolve itself.
+ */
+export function rejectionForPathFishingAskQuestions(toolName: string, input: unknown): string | undefined {
+	if (toolName !== 'vscode_askQuestions') {
+		return undefined;
+	}
+	const args = asRecord(input);
+	const questions = args.questions;
+	if (!Array.isArray(questions) || !questions.length) {
+		return undefined;
+	}
+
+	const texts: string[] = [];
+	for (const q of questions) {
+		if (!q || typeof q !== 'object') {
+			continue;
+		}
+		const rec = q as Record<string, unknown>;
+		if (typeof rec.question === 'string') {
+			texts.push(rec.question);
+		}
+		if (typeof rec.header === 'string') {
+			texts.push(rec.header);
+		}
+	}
+	const blob = texts.join('\n');
+	if (PATH_FISHING_QUESTION.test(blob)) {
+		return PATH_FISHING_REJECTION;
+	}
+	return undefined;
+}
+
+/**
+ * Combined pre-invoke guard for Integrity agent tool calls.
+ */
+export function rejectionForMisroutedToolCall(toolName: string, input: unknown): string | undefined {
+	return rejectionForBrowserToolCall(toolName, input)
+		?? rejectionForPathFishingAskQuestions(toolName, input);
 }

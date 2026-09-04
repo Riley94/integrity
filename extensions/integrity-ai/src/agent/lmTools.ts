@@ -7,8 +7,13 @@ import * as vscode from 'vscode';
 import {
 	applyPatchHunks,
 	applyUniqueReplace,
+	extractPathFromInput,
+	fileBasename,
 	isSensitivePath,
+	normalizePatchInput,
 	normalizeWorkspaceRelativePath,
+	pickUniqueBasenameMatch,
+	resolveAgentFilePath,
 	type PatchHunk,
 } from './pathPolicy';
 import { IntegrityToolName } from './toolNames';
@@ -21,8 +26,14 @@ function workspaceFolder(): vscode.WorkspaceFolder | undefined {
 	return vscode.workspace.workspaceFolders?.[0];
 }
 
+function workspaceRootPaths(): string[] {
+	return (vscode.workspace.workspaceFolders ?? []).map(f => f.uri.fsPath);
+}
+
 function resolveUri(relativePath: string): vscode.Uri | undefined {
-	const normalized = normalizeWorkspaceRelativePath(relativePath);
+	const normalized = relativePath === '.'
+		? '.'
+		: normalizeWorkspaceRelativePath(relativePath);
 	if (normalized === undefined) {
 		return undefined;
 	}
@@ -30,7 +41,104 @@ function resolveUri(relativePath: string): vscode.Uri | undefined {
 	if (!folder) {
 		return undefined;
 	}
+	if (normalized === '.' || normalized === '') {
+		return folder.uri;
+	}
 	return vscode.Uri.joinPath(folder.uri, normalized);
+}
+
+function textResult(text: string): vscode.LanguageModelToolResult {
+	return new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart(text)]);
+}
+
+async function findWorkspacePathsByBasename(basename: string, token?: vscode.CancellationToken): Promise<string[]> {
+	const escaped = basename.replace(/[[\]{}*?]/g, '\\$&');
+	const uris = await vscode.workspace.findFiles(`**/${escaped}`, '**/node_modules/**', 20, token);
+	return uris.map(u => vscode.workspace.asRelativePath(u, false));
+}
+
+export type PathFromInputOptions = {
+	optional?: boolean;
+	defaultPath?: string;
+	/**
+	 * When the path is a placeholder or outside the workspace, search by basename.
+	 * If no matches and this is true, use the basename as a new workspace-relative path
+	 * (for create/apply that can create files).
+	 */
+	createIfMissingBasename?: boolean;
+	token?: vscode.CancellationToken;
+};
+
+/**
+ * Resolve a tool path from input (aliases + absolute-in-workspace + basename search).
+ */
+async function pathFromInput(
+	input: unknown,
+	opts?: PathFromInputOptions,
+): Promise<{ relative: string } | { error: vscode.LanguageModelToolResult }> {
+	const roots = workspaceRootPaths();
+	const resolved = resolveAgentFilePath(input, roots, opts);
+	if (resolved.ok) {
+		return { relative: resolved.path };
+	}
+
+	const basename = resolved.basenameLookup ?? fileBasename(extractPathFromInput(input).raw ?? '');
+	if (!basename || basename === '.') {
+		return { error: textResult(resolved.error) };
+	}
+
+	const matches = await findWorkspacePathsByBasename(basename, opts?.token);
+	const picked = pickUniqueBasenameMatch(basename, matches);
+	if (picked.ok) {
+		return { relative: picked.path };
+	}
+
+	if (opts?.createIfMissingBasename && matches.length === 0) {
+		const normalized = normalizeWorkspaceRelativePath(basename);
+		if (normalized) {
+			return { relative: normalized };
+		}
+	}
+
+	return { error: textResult(picked.error) };
+}
+
+/**
+ * If a resolved relative path is missing on disk and looks like a bare filename,
+ * search the workspace by basename and use a unique match.
+ */
+async function resolveExistingRelativePath(
+	relative: string,
+	token?: vscode.CancellationToken,
+): Promise<{ relative: string } | { error: string }> {
+	const uri = resolveUri(relative);
+	if (!uri) {
+		return { error: 'No workspace open.' };
+	}
+	try {
+		await vscode.workspace.fs.stat(uri);
+		return { relative };
+	} catch {
+		// continue to basename search
+	}
+
+	const base = fileBasename(relative);
+	if (!base || (relative.includes('/') && base !== relative)) {
+		// Path has directories and missed — don't broaden to unrelated basenames unless it's a single segment.
+		if (relative.includes('/')) {
+			return { error: `File not found: ${relative}` };
+		}
+	}
+	if (!base) {
+		return { error: `File not found: ${relative}` };
+	}
+
+	const matches = await findWorkspacePathsByBasename(base, token);
+	const picked = pickUniqueBasenameMatch(base, matches);
+	if (picked.ok) {
+		return { relative: picked.path };
+	}
+	return { error: picked.error };
 }
 
 async function confirmSensitiveRead(path: string): Promise<boolean> {
@@ -43,19 +151,20 @@ async function confirmSensitiveRead(path: string): Promise<boolean> {
 	return choice === 'Allow';
 }
 
-function textResult(text: string): vscode.LanguageModelToolResult {
-	return new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart(text)]);
-}
-
 class ReadFileTool implements vscode.LanguageModelTool<{ path: string }> {
 	async invoke(
 		options: vscode.LanguageModelToolInvocationOptions<{ path: string }>,
-		_token: vscode.CancellationToken,
+		token: vscode.CancellationToken,
 	): Promise<vscode.LanguageModelToolResult> {
-		const relative = normalizeWorkspaceRelativePath(options.input?.path ?? '');
-		if (!relative) {
-			return textResult('Invalid path: must be workspace-relative without .. traversal.');
+		const resolved = await pathFromInput(options.input, { token });
+		if ('error' in resolved) {
+			return resolved.error;
 		}
+		const existing = await resolveExistingRelativePath(resolved.relative, token);
+		if ('error' in existing) {
+			return textResult(existing.error);
+		}
+		const { relative } = existing;
 		if (isSensitivePath(relative) && !(await confirmSensitiveRead(relative))) {
 			return textResult('Access denied by user.');
 		}
@@ -75,9 +184,13 @@ class ReadFileTool implements vscode.LanguageModelTool<{ path: string }> {
 class ListDirTool implements vscode.LanguageModelTool<{ path?: string }> {
 	async invoke(
 		options: vscode.LanguageModelToolInvocationOptions<{ path?: string }>,
-		_token: vscode.CancellationToken,
+		token: vscode.CancellationToken,
 	): Promise<vscode.LanguageModelToolResult> {
-		const relative = normalizeWorkspaceRelativePath(options.input?.path || '.') ?? '.';
+		const resolved = await pathFromInput(options.input, { optional: true, defaultPath: '.', token });
+		if ('error' in resolved) {
+			return resolved.error;
+		}
+		const { relative } = resolved;
 		const uri = relative === '.' ? workspaceFolder()?.uri : resolveUri(relative);
 		if (!uri) {
 			return textResult('No workspace open or invalid path.');
@@ -97,12 +210,13 @@ class ListDirTool implements vscode.LanguageModelTool<{ path?: string }> {
 class CreateFileTool implements vscode.LanguageModelTool<{ path: string; content: string; overwrite?: boolean }> {
 	async invoke(
 		options: vscode.LanguageModelToolInvocationOptions<{ path: string; content: string; overwrite?: boolean }>,
-		_token: vscode.CancellationToken,
+		token: vscode.CancellationToken,
 	): Promise<vscode.LanguageModelToolResult> {
-		const relative = normalizeWorkspaceRelativePath(options.input?.path ?? '');
-		if (!relative) {
-			return textResult('Invalid path.');
+		const resolved = await pathFromInput(options.input, { createIfMissingBasename: true, token });
+		if ('error' in resolved) {
+			return resolved.error;
 		}
+		const { relative } = resolved;
 		const uri = resolveUri(relative);
 		if (!uri) {
 			return textResult('No workspace open.');
@@ -112,7 +226,9 @@ class CreateFileTool implements vscode.LanguageModelTool<{ path: string; content
 		try {
 			await vscode.workspace.fs.stat(uri);
 			if (!overwrite) {
-				return textResult(`File already exists: ${relative}. Pass overwrite=true to replace.`);
+				return textResult(
+					`File already exists: ${relative}. Use integrity_apply_patch to modify it, or pass overwrite=true to replace.`,
+				);
 			}
 		} catch {
 			// does not exist — ok
@@ -142,12 +258,17 @@ class CreateFileTool implements vscode.LanguageModelTool<{ path: string; content
 class ReplaceStringTool implements vscode.LanguageModelTool<{ path: string; oldText: string; newText: string }> {
 	async invoke(
 		options: vscode.LanguageModelToolInvocationOptions<{ path: string; oldText: string; newText: string }>,
-		_token: vscode.CancellationToken,
+		token: vscode.CancellationToken,
 	): Promise<vscode.LanguageModelToolResult> {
-		const relative = normalizeWorkspaceRelativePath(options.input?.path ?? '');
-		if (!relative) {
-			return textResult('Invalid path.');
+		const resolved = await pathFromInput(options.input, { token });
+		if ('error' in resolved) {
+			return resolved.error;
 		}
+		const existing = await resolveExistingRelativePath(resolved.relative, token);
+		if ('error' in existing) {
+			return textResult(existing.error);
+		}
+		const { relative } = existing;
 		const uri = resolveUri(relative);
 		if (!uri) {
 			return textResult('No workspace open.');
@@ -196,34 +317,48 @@ class ReplaceStringTool implements vscode.LanguageModelTool<{ path: string; oldT
 	}
 }
 
-class ApplyPatchTool implements vscode.LanguageModelTool<{ path: string; hunks: PatchHunk[] }> {
+class ApplyPatchTool implements vscode.LanguageModelTool<{ path: string; hunks?: PatchHunk[]; patch?: string; content?: string }> {
 	async invoke(
-		options: vscode.LanguageModelToolInvocationOptions<{ path: string; hunks: PatchHunk[] }>,
-		_token: vscode.CancellationToken,
+		options: vscode.LanguageModelToolInvocationOptions<{ path: string; hunks?: PatchHunk[]; patch?: string; content?: string }>,
+		token: vscode.CancellationToken,
 	): Promise<vscode.LanguageModelToolResult> {
-		const relative = normalizeWorkspaceRelativePath(options.input?.path ?? '');
-		if (!relative) {
-			return textResult('Invalid path.');
+		const resolved = await pathFromInput(options.input, { createIfMissingBasename: true, token });
+		if ('error' in resolved) {
+			return resolved.error;
+		}
+		let relative = resolved.relative;
+		const uriProbe = resolveUri(relative);
+		if (uriProbe) {
+			try {
+				await vscode.workspace.fs.stat(uriProbe);
+			} catch {
+				const existing = await resolveExistingRelativePath(relative, token);
+				if (!('error' in existing)) {
+					relative = existing.relative;
+				}
+				// else keep basename path for create-via-patch
+			}
 		}
 		const uri = resolveUri(relative);
 		if (!uri) {
 			return textResult('No workspace open.');
 		}
 
-		const hunks = Array.isArray(options.input?.hunks) ? options.input.hunks : [];
-		if (!hunks.length) {
-			return textResult('hunks must be a non-empty array.');
+		const normalized = normalizePatchInput(options.input);
+		if (!normalized.ok) {
+			return textResult(normalized.error);
 		}
+		const hunks = normalized.hunks;
 
-		let existing: string | undefined;
+		let existingContent: string | undefined;
 		try {
 			const bytes = await vscode.workspace.fs.readFile(uri);
-			existing = Buffer.from(bytes).toString('utf8');
+			existingContent = Buffer.from(bytes).toString('utf8');
 		} catch {
-			existing = undefined;
+			existingContent = undefined;
 		}
 
-		const result = applyPatchHunks(existing, hunks);
+		const result = applyPatchHunks(existingContent, hunks);
 		if (!result.ok) {
 			return textResult(result.error);
 		}
@@ -345,9 +480,20 @@ class GetErrorsTool implements vscode.LanguageModelTool<{ path?: string }> {
 		options: vscode.LanguageModelToolInvocationOptions<{ path?: string }>,
 		_token: vscode.CancellationToken,
 	): Promise<vscode.LanguageModelToolResult> {
-		const relative = options.input?.path
-			? normalizeWorkspaceRelativePath(options.input.path)
-			: undefined;
+		let relative: string | undefined;
+		const hasPathAlias = options.input && typeof options.input === 'object' && (
+			'path' in options.input ||
+			'filePath' in options.input ||
+			'file_path' in options.input ||
+			'filepath' in options.input
+		);
+		if (hasPathAlias) {
+			const resolved = await pathFromInput(options.input, { optional: true });
+			if ('error' in resolved) {
+				return resolved.error;
+			}
+			relative = resolved.relative === '.' ? undefined : resolved.relative;
+		}
 
 		const diagnostics = vscode.languages.getDiagnostics();
 		const lines: string[] = [];

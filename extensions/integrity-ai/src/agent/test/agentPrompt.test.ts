@@ -22,6 +22,9 @@ describe('buildSystemPrompt', () => {
 		assert.match(prompt, /integrity_apply_patch/);
 		assert.match(prompt, /integrity_read_file/);
 		assert.match(prompt, /Never use browser tools to author or edit workspace files/);
+		assert.match(prompt, /workspace-relative path/);
+		assert.match(prompt, /Never invent placeholders/);
+		assert.match(prompt, /vscode_askQuestions/);
 	});
 
 	it('includes the mode sentence', () => {

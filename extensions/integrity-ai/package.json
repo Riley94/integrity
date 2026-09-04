@@ -146,7 +146,19 @@
           "properties": {
             "path": {
               "type": "string",
-              "description": "Workspace-relative file path"
+              "description": "Workspace-relative file path (e.g. main.py). Absolute paths under the workspace are accepted. Aliases: filePath, file_path."
+            },
+            "filePath": {
+              "type": "string",
+              "description": "Alias for path"
+            },
+            "file_path": {
+              "type": "string",
+              "description": "Alias for path"
+            },
+            "filepath": {
+              "type": "string",
+              "description": "Alias for path"
             }
           },
           "required": ["path"]
@@ -164,7 +176,15 @@
           "properties": {
             "path": {
               "type": "string",
-              "description": "Workspace-relative directory path (default '.')"
+              "description": "Workspace-relative directory path (default '.'). Absolute paths under the workspace are accepted. Aliases: filePath, file_path."
+            },
+            "filePath": {
+              "type": "string",
+              "description": "Alias for path"
+            },
+            "file_path": {
+              "type": "string",
+              "description": "Alias for path"
             }
           }
         },
@@ -181,7 +201,19 @@
           "properties": {
             "path": {
               "type": "string",
-              "description": "Workspace-relative file path"
+              "description": "Workspace-relative file path (e.g. main.py). Absolute paths under the workspace are accepted. Aliases: filePath, file_path."
+            },
+            "filePath": {
+              "type": "string",
+              "description": "Alias for path"
+            },
+            "file_path": {
+              "type": "string",
+              "description": "Alias for path"
+            },
+            "filepath": {
+              "type": "string",
+              "description": "Alias for path"
             },
             "content": {
               "type": "string",
@@ -207,7 +239,19 @@
           "properties": {
             "path": {
               "type": "string",
-              "description": "Workspace-relative file path"
+              "description": "Workspace-relative file path (e.g. main.py). Absolute paths under the workspace are accepted. Aliases: filePath, file_path."
+            },
+            "filePath": {
+              "type": "string",
+              "description": "Alias for path"
+            },
+            "file_path": {
+              "type": "string",
+              "description": "Alias for path"
+            },
+            "filepath": {
+              "type": "string",
+              "description": "Alias for path"
             },
             "oldText": {
               "type": "string",
@@ -226,18 +270,30 @@
         "name": "integrity_apply_patch",
         "toolReferenceName": "applyPatch",
         "displayName": "Apply Patch",
-        "modelDescription": "Preferred way to add code to an existing file, insert or replace unique spans, or create a missing file. Pass ordered hunks: empty/omitted oldText appends (or creates if missing); non-empty oldText must match uniquely. Not for browsing, running code, or driving a web page.",
+        "modelDescription": "Preferred way to add code to an existing file, insert or replace unique spans, or create a missing file. Prefer hunks: [{ \"newText\": \"...\" }] to append/create, or hunks with oldText for a unique replace. You may also pass patch or content as a string to append/create. Not for browsing or running code.",
         "icon": "$(diff)",
         "inputSchema": {
           "type": "object",
           "properties": {
             "path": {
               "type": "string",
-              "description": "Workspace-relative file path"
+              "description": "Workspace-relative file path (e.g. main.py). Absolute paths under the workspace are accepted. Aliases: filePath, file_path."
+            },
+            "filePath": {
+              "type": "string",
+              "description": "Alias for path"
+            },
+            "file_path": {
+              "type": "string",
+              "description": "Alias for path"
+            },
+            "filepath": {
+              "type": "string",
+              "description": "Alias for path"
             },
             "hunks": {
               "type": "array",
-              "description": "Ordered patch hunks applied left-to-right",
+              "description": "Ordered patch hunks applied left-to-right. Prefer this shape.",
               "items": {
                 "type": "object",
                 "properties": {
@@ -252,9 +308,17 @@
                 },
                 "required": ["newText"]
               }
+            },
+            "patch": {
+              "type": "string",
+              "description": "Alias for a single append/create hunk: same as hunks: [{ newText: <patch> }]"
+            },
+            "content": {
+              "type": "string",
+              "description": "Alias for patch / append-or-create text"
             }
           },
-          "required": ["path", "hunks"]
+          "required": ["path"]
         },
         "tags": ["integrity"]
       },
@@ -334,7 +398,15 @@
           "properties": {
             "path": {
               "type": "string",
-              "description": "Optional workspace-relative path filter"
+              "description": "Optional workspace-relative path filter. Absolute paths under the workspace are accepted. Aliases: filePath, file_path."
+            },
+            "filePath": {
+              "type": "string",
+              "description": "Alias for path"
+            },
+            "file_path": {
+              "type": "string",
+              "description": "Alias for path"
             }
           }
         },

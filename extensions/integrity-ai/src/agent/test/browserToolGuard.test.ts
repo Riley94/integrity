@@ -5,7 +5,11 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { rejectionForBrowserToolCall } from '../browserToolGuard';
+import {
+	rejectionForBrowserToolCall,
+	rejectionForMisroutedToolCall,
+	rejectionForPathFishingAskQuestions,
+} from '../browserToolGuard';
 
 describe('rejectionForBrowserToolCall', () => {
 	it('rejects Python input/print scripts without page refs', () => {
@@ -79,5 +83,37 @@ describe('rejectionForBrowserToolCall', () => {
 			rejectionForBrowserToolCall('integrity_read_file', { path: 'main.py' }),
 			undefined,
 		);
+	});
+});
+
+describe('rejectionForPathFishingAskQuestions', () => {
+	it('rejects askQuestions that request a file path', () => {
+		const msg = rejectionForPathFishingAskQuestions('vscode_askQuestions', {
+			questions: [{
+				header: 'file-path',
+				question: 'Please provide the workspace-relative path to the file you want to work with (e.g., main.py or src/main.py).',
+			}],
+		});
+		assert.ok(msg);
+		assert.match(msg!, /integrity_file_search/);
+		assert.match(msg!, /do not ask/i);
+	});
+
+	it('allows unrelated askQuestions', () => {
+		assert.equal(
+			rejectionForPathFishingAskQuestions('vscode_askQuestions', {
+				questions: [{ question: 'Which test framework should we use?' }],
+			}),
+			undefined,
+		);
+	});
+});
+
+describe('rejectionForMisroutedToolCall', () => {
+	it('covers browser and path-fishing cases', () => {
+		assert.ok(rejectionForMisroutedToolCall('open_browser_page', { url: 'main.py' }));
+		assert.ok(rejectionForMisroutedToolCall('vscode_askQuestions', {
+			questions: [{ question: 'What is the correct file path?' }],
+		}));
 	});
 });
