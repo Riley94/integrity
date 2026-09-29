@@ -87,6 +87,49 @@
           "default": "claude-sonnet-4-20250514",
           "description": "Anthropic model name"
         },
+        "integrity.ai.jev.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Jev API key (BYOK). Required before the agent can apply mutating tools or finish a turn."
+        },
+        "integrity.ai.jev.baseUrl": {
+          "type": "string",
+          "default": "https://thejevai.com",
+          "description": "Jev System One API base URL"
+        },
+        "integrity.ai.jev.model": {
+          "type": "string",
+          "default": "jev-latest",
+          "description": "Jev model name"
+        },
+        "integrity.ai.jev.approvalThreshold": {
+          "type": "number",
+          "default": 0.7,
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Noul at or above this value means a mutating tool call needs human approval"
+        },
+        "integrity.ai.jev.routingConfidence": {
+          "type": "number",
+          "default": 0.6,
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Minimum Choice confidence required to override the selected writer model"
+        },
+        "integrity.ai.jev.retrievalThreshold": {
+          "type": "number",
+          "default": 0.5,
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Noul at or above this value keeps a retrieved chunk"
+        },
+        "integrity.ai.jev.completionConfidence": {
+          "type": "number",
+          "default": 0.6,
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Minimum Choice confidence required to treat a turn as complete"
+        },
         "integrity.ai.inlineCompletions.enabled": {
           "type": "boolean",
           "default": true,

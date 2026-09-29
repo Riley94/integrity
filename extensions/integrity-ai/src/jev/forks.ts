@@ -1,0 +1,207 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Riley94. All rights reserved.
+ *  Licensed under the MIT License.
+ *--------------------------------------------------------------------------------------------*/
+
+import * as vscode from 'vscode';
+import {
+	type ApprovalVerdict,
+	type CompletionDecision,
+	type JevThresholds,
+	type PreparedJevCall,
+	type ProposedToolCall,
+	type RetrievalHit,
+	type RoutingCandidate,
+	COMPLETION_QUESTION,
+	approvalQuestionId,
+	buildApprovalRequest,
+	buildCompletionRequest,
+	buildRetrievalRequest,
+	buildRoutingRequest,
+	interpretApproval,
+	interpretCompletion,
+	interpretRetrieval,
+	interpretRouting,
+} from './agentDecisions';
+import {
+	type JevAnswer,
+	type JevClientConfig,
+	evaluateJev,
+	isAbortError,
+	isJevUnavailable,
+} from './jevClient';
+
+export interface JevRuntime {
+	config: JevClientConfig;
+	thresholds: JevThresholds;
+	requireEditApproval: boolean;
+	requireTerminalApproval: boolean;
+}
+
+/**
+ * Read Jev and approval settings. Thresholds are clamped to 0..1.
+ */
+export function readJevRuntime(): JevRuntime {
+	const cfg = vscode.workspace.getConfiguration('integrity.ai');
+	return {
+		config: {
+			apiKey: cfg.get<string>('jev.apiKey', ''),
+			baseUrl: cfg.get<string>('jev.baseUrl', 'https://thejevai.com'),
+			model: cfg.get<string>('jev.model', 'jev-latest'),
+		},
+		thresholds: {
+			approvalThreshold: unit(cfg.get<number>('jev.approvalThreshold', 0.7), 0.7),
+			routingConfidence: unit(cfg.get<number>('jev.routingConfidence', 0.6), 0.6),
+			retrievalThreshold: unit(cfg.get<number>('jev.retrievalThreshold', 0.5), 0.5),
+			completionConfidence: unit(cfg.get<number>('jev.completionConfidence', 0.6), 0.6),
+		},
+		requireEditApproval: cfg.get<boolean>('agent.requireEditApproval', true),
+		requireTerminalApproval: cfg.get<boolean>('agent.requireTerminalApproval', true),
+	};
+}
+
+/**
+ * Model id to switch to, or undefined to keep the user-selected model.
+ * A missing key or failed call keeps the user-selected model.
+ */
+export async function routeWriterModel(
+	prompt: string,
+	mode: string,
+	currentModelId: string,
+	candidates: readonly RoutingCandidate[],
+	signal?: AbortSignal,
+): Promise<string | undefined> {
+	const request = buildRoutingRequest(prompt, mode, currentModelId, candidates);
+	if (!request) {
+		return undefined;
+	}
+	const { config, thresholds } = readJevRuntime();
+	const answers = await evaluateOrUnavailable(config, request, signal);
+	return interpretRouting({
+		answers: answers ?? undefined,
+		unavailable: answers === null,
+		candidateIds: candidates.map(candidate => candidate.id),
+		routingConfidence: thresholds.routingConfidence,
+	});
+}
+
+/**
+ * Rank index hits. `drop-all` injects nothing when Jev does not answer.
+ * `keep-all` returns the original hits so a read tool still succeeds.
+ */
+export async function rankChunksForContext(
+	query: string,
+	hits: readonly RetrievalHit[],
+	onUnavailable: 'drop-all' | 'keep-all',
+	signal?: AbortSignal,
+): Promise<RetrievalHit[]> {
+	const request = buildRetrievalRequest(query, hits);
+	if (!request) {
+		return [];
+	}
+	const { config, thresholds } = readJevRuntime();
+	const answers = await evaluateOrUnavailable(config, request, signal);
+	return interpretRetrieval({
+		hits,
+		answers: answers ?? undefined,
+		unavailable: answers === null,
+		threshold: thresholds.retrievalThreshold,
+		onUnavailable,
+	});
+}
+
+/**
+ * One verdict per mutating call, keyed by {@link approvalQuestionId}.
+ * An unanswered call is a block.
+ */
+export async function judgeMutatingCalls(
+	calls: readonly ProposedToolCall[],
+	signal?: AbortSignal,
+): Promise<Map<string, ApprovalVerdict>> {
+	const verdicts = new Map<string, ApprovalVerdict>();
+	const request = buildApprovalRequest(calls);
+	if (!request) {
+		return verdicts;
+	}
+	const runtime = readJevRuntime();
+	const answers = await evaluateOrUnavailable(runtime.config, request, signal);
+	const unavailable = answers === null;
+	calls.forEach((call, index) => {
+		const key = approvalQuestionId(call.id, index);
+		verdicts.set(key, interpretApproval({
+			toolName: call.name,
+			answer: answers?.[key],
+			unavailable: unavailable || !answers?.[key],
+			approvalThreshold: runtime.thresholds.approvalThreshold,
+			requireEditApproval: runtime.requireEditApproval,
+			requireTerminalApproval: runtime.requireTerminalApproval,
+		}));
+	});
+	return verdicts;
+}
+
+/**
+ * Decide whether a text-only assistant reply may end the turn.
+ */
+export async function judgeCompletion(
+	task: string,
+	assistantText: string,
+	priorUnavailable: boolean,
+	signal?: AbortSignal,
+): Promise<CompletionDecision> {
+	const request = buildCompletionRequest(task, assistantText);
+	const { config, thresholds } = readJevRuntime();
+	const answers = await evaluateOrUnavailable(config, request, signal);
+	const answer = answers?.[COMPLETION_QUESTION];
+	return interpretCompletion({
+		answer,
+		unavailable: answers === null || !answer,
+		completionConfidence: thresholds.completionConfidence,
+		priorUnavailable,
+	});
+}
+
+/**
+ * Link a VS Code cancellation token to an abort signal for one Jev call.
+ */
+export function beginCancellation(token: vscode.CancellationToken): { signal: AbortSignal; end: () => void } {
+	const controller = new AbortController();
+	if (token.isCancellationRequested) {
+		controller.abort();
+	}
+	const subscription = token.onCancellationRequested(() => controller.abort());
+	return {
+		signal: controller.signal,
+		end: () => subscription.dispose(),
+	};
+}
+
+/**
+ * @returns parsed answers, or null when Jev is unset or the call failed.
+ * Abort errors propagate.
+ */
+async function evaluateOrUnavailable(
+	config: JevClientConfig,
+	request: PreparedJevCall,
+	signal: AbortSignal | undefined,
+): Promise<Record<string, JevAnswer> | null> {
+	try {
+		const result = await evaluateJev(config, request.state, request.questions, { signal });
+		return result.answers;
+	} catch (err) {
+		if (isAbortError(err)) {
+			throw err;
+		}
+		if (isJevUnavailable(err)) {
+			return null;
+		}
+		return null;
+	}
+}
+
+function unit(value: number, fallback: number): number {
+	if (!Number.isFinite(value)) {
+		return fallback;
+	}
+	return Math.min(1, Math.max(0, value));
+}

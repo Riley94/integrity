@@ -6,10 +6,32 @@
 import * as vscode from 'vscode';
 import { buildSystemPrompt } from './agentPrompt';
 import { rejectionForMisroutedToolCall } from './browserToolGuard';
-import { loadAgentRules } from './lmTools';
-import { inferModeKind, isToolAllowedInMode, type AgentModeKind } from './toolNames';
+import { loadAgentRules, type CodebaseSearchIndex } from './lmTools';
+import { extractPathFromInput } from './pathPolicy';
+import { inferModeKind, IntegrityToolName, isToolAllowedInMode, type AgentModeKind } from './toolNames';
 import { parseModelId } from '../providers/modelId';
+import { INTEGRITY_LM_VENDOR } from '../providers/languageModelProvider';
 import { ensureOllamaModelReady, isOllamaModelReady, ollamaModelNotReadyMessage } from '../ollama/ensureOllamaModel';
+import {
+	COMPLETION_BLOCKED_MESSAGE,
+	COMPLETION_UNVERIFIED_MESSAGE,
+	type ApprovalVerdict,
+	type CompletionDecision,
+	approvalQuestionId,
+	blockedMutatingToolMessage,
+	formatRetrievedChunks,
+	interpretCompletion,
+	isMutatingTool,
+	isTerminalTool,
+} from '../jev/agentDecisions';
+import {
+	beginCancellation,
+	judgeCompletion,
+	judgeMutatingCalls,
+	rankChunksForContext,
+	routeWriterModel,
+} from '../jev/forks';
+import { isAbortError } from '../jev/jevClient';
 
 const DEFAULT_MAX_STEPS = 24;
 
@@ -102,17 +124,32 @@ export async function runChatAgentLoop(
 	context: vscode.ChatContext,
 	stream: vscode.ChatResponseStream,
 	token: vscode.CancellationToken,
+	index: CodebaseSearchIndex,
 ): Promise<vscode.ChatResult> {
 	const modeName = request.modeInstructions2?.name ?? request.modeInstructions ?? 'Agent';
 	const mode = inferModeKind(typeof modeName === 'string' ? modeName : 'agent');
 	const agentRules = await loadAgentRules();
-	const extraContext = referencesContext(request);
-	const system = buildSystemPrompt(mode, agentRules, extraContext);
 
-	const model = request.model;
-	if (!model) {
+	const selected = request.model;
+	if (!selected) {
 		stream.markdown('No language model is available. Start Ollama from the Command Palette (**Integrity: Start Ollama**) or configure a BYOK provider in Integrity AI settings.');
 		return {};
+	}
+
+	let model: vscode.LanguageModelChat;
+	try {
+		model = await selectWriterModel(request.prompt, mode, selected, token);
+	} catch (err) {
+		if (isAbortError(err) || token.isCancellationRequested) {
+			return {};
+		}
+		model = selected;
+	}
+	if (token.isCancellationRequested) {
+		return {};
+	}
+	if (model.id !== selected.id) {
+		stream.progress(`Using ${model.name}…`);
 	}
 
 	const parsed = parseModelId(model.id);
@@ -125,6 +162,22 @@ export async function runChatAgentLoop(
 		}
 	}
 
+	let retrieved = '';
+	try {
+		retrieved = await rankedPrefetch(index, request.prompt, token);
+	} catch (err) {
+		if (isAbortError(err) || token.isCancellationRequested) {
+			return {};
+		}
+		retrieved = '';
+	}
+	if (token.isCancellationRequested) {
+		return {};
+	}
+
+	const extraContext = [referencesContext(request), retrieved].filter(part => part.trim()).join('\n\n');
+	const system = buildSystemPrompt(mode, agentRules, extraContext);
+
 	const tools = collectEnabledTools(request, mode);
 	const maxSteps = vscode.workspace.getConfiguration('integrity.ai').get<number>('agent.maxSteps', DEFAULT_MAX_STEPS);
 
@@ -133,6 +186,8 @@ export async function runChatAgentLoop(
 		...historyToMessages(context),
 		vscode.LanguageModelChatMessage.User(request.prompt),
 	];
+
+	let completionUnavailableStreak = 0;
 
 	for (let step = 0; step < maxSteps; step++) {
 		if (token.isCancellationRequested) {
@@ -185,48 +240,45 @@ export async function runChatAgentLoop(
 		if (!toolCalls.length) {
 			if (!textOut.trim()) {
 				stream.markdown('_No response from model._');
+				return {};
 			}
-			return {};
+			let decision: CompletionDecision;
+			try {
+				decision = await completionDecision(request.prompt, textOut, completionUnavailableStreak > 0, token);
+			} catch (err) {
+				if (isAbortError(err) || token.isCancellationRequested) {
+					return {};
+				}
+				decision = interpretCompletion({
+					answer: undefined,
+					unavailable: true,
+					completionConfidence: 1,
+					priorUnavailable: completionUnavailableStreak > 0,
+				});
+			}
+			if (token.isCancellationRequested) {
+				return {};
+			}
+			if (decision.action === 'exit') {
+				return {};
+			}
+			if (decision.action === 'stop') {
+				stream.markdown(`\n\n**${decision.message ?? COMPLETION_BLOCKED_MESSAGE}**`);
+				return {};
+			}
+			completionUnavailableStreak = decision.unavailable ? completionUnavailableStreak + 1 : 0;
+			stream.progress(decision.unavailable ? 'Completion check unavailable, continuing…' : 'Jev asked for another pass…');
+			messages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
+			messages.push(vscode.LanguageModelChatMessage.User(decision.message ?? COMPLETION_UNVERIFIED_MESSAGE));
+			continue;
 		}
 
 		messages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
 
-		const resultParts: vscode.LanguageModelToolResultPart[] = [];
-		for (const call of toolCalls) {
-			if (token.isCancellationRequested) {
-				return {};
-			}
-			if (!call.name?.trim()) {
-				resultParts.push(new vscode.LanguageModelToolResultPart(call.callId, [
-					new vscode.LanguageModelTextPart(
-						'Tool error: empty tool name. Call integrity_apply_patch with path and hunks/patch, or another integrity_* tool.',
-					),
-				]));
-				continue;
-			}
-			stream.progress(`Running \`${call.name}\`…`);
-			const rejected = rejectionForMisroutedToolCall(call.name, call.input);
-			if (rejected) {
-				resultParts.push(new vscode.LanguageModelToolResultPart(call.callId, [
-					new vscode.LanguageModelTextPart(rejected),
-				]));
-				continue;
-			}
-			try {
-				const result = await vscode.lm.invokeTool(call.name, {
-					input: call.input,
-					toolInvocationToken: request.toolInvocationToken,
-				}, token);
-				const text = await toolResultToText(result);
-				resultParts.push(new vscode.LanguageModelToolResultPart(call.callId, [new vscode.LanguageModelTextPart(text)]));
-			} catch (err) {
-				const message = err instanceof Error ? err.message : String(err);
-				resultParts.push(new vscode.LanguageModelToolResultPart(call.callId, [
-					new vscode.LanguageModelTextPart(`Tool error: ${message}`),
-				]));
-			}
+		const resultParts = await settleToolCalls(toolCalls, request, stream, token);
+		if (!resultParts) {
+			return {};
 		}
-
 		messages.push(vscode.LanguageModelChatMessage.User(resultParts));
 	}
 
@@ -235,13 +287,249 @@ export async function runChatAgentLoop(
 }
 
 /**
+ * Pick a writer once per turn. A missing Jev answer keeps the model the user selected.
+ */
+async function selectWriterModel(
+	prompt: string,
+	mode: AgentModeKind,
+	selected: vscode.LanguageModelChat,
+	token: vscode.CancellationToken,
+): Promise<vscode.LanguageModelChat> {
+	let candidates: vscode.LanguageModelChat[] = [];
+	try {
+		candidates = await vscode.lm.selectChatModels({ vendor: INTEGRITY_LM_VENDOR });
+	} catch {
+		return selected;
+	}
+	const linked = beginCancellation(token);
+	try {
+		const switchTo = await routeWriterModel(
+			prompt,
+			mode,
+			selected.id,
+			candidates.map(candidate => ({
+				id: candidate.id,
+				name: candidate.name,
+				family: candidate.family,
+				maxInputTokens: candidate.maxInputTokens,
+			})),
+			linked.signal,
+		);
+		if (!switchTo) {
+			return selected;
+		}
+		return candidates.find(candidate => candidate.id === switchTo) ?? selected;
+	} finally {
+		linked.end();
+	}
+}
+
+/**
+ * Search the index and keep only chunks Jev marks useful. A failed rank injects nothing.
+ */
+async function rankedPrefetch(
+	index: CodebaseSearchIndex,
+	prompt: string,
+	token: vscode.CancellationToken,
+): Promise<string> {
+	let hits: Array<{ path: string; content: string; startLine: number; endLine: number }> = [];
+	try {
+		hits = await index.search(prompt, 8);
+	} catch {
+		return '';
+	}
+	if (!hits.length || token.isCancellationRequested) {
+		return '';
+	}
+	const linked = beginCancellation(token);
+	try {
+		const ranked = await rankChunksForContext(prompt, hits, 'drop-all', linked.signal);
+		return formatRetrievedChunks(ranked);
+	} finally {
+		linked.end();
+	}
+}
+
+async function completionDecision(
+	task: string,
+	assistantText: string,
+	priorUnavailable: boolean,
+	token: vscode.CancellationToken,
+): Promise<CompletionDecision> {
+	const linked = beginCancellation(token);
+	try {
+		return await judgeCompletion(task, assistantText, priorUnavailable, linked.signal);
+	} catch (err) {
+		if (isAbortError(err) || token.isCancellationRequested) {
+			throw err;
+		}
+		return interpretCompletion({
+			answer: undefined,
+			unavailable: true,
+			completionConfidence: 1,
+			priorUnavailable,
+		});
+	} finally {
+		linked.end();
+	}
+}
+
+/**
+ * Run read-only tools immediately. Mutating tools wait for one batched Jev decision.
+ * @returns undefined when the turn was cancelled.
+ */
+async function settleToolCalls(
+	toolCalls: readonly vscode.LanguageModelToolCallPart[],
+	request: vscode.ChatRequest,
+	stream: vscode.ChatResponseStream,
+	token: vscode.CancellationToken,
+): Promise<vscode.LanguageModelToolResultPart[] | undefined> {
+	const slots: Array<{ call: vscode.LanguageModelToolCallPart; text: string }> = [];
+	const mutating: Array<{ slot: number; call: vscode.LanguageModelToolCallPart }> = [];
+
+	for (const call of toolCalls) {
+		if (token.isCancellationRequested) {
+			return undefined;
+		}
+		if (!call.name?.trim()) {
+			slots.push({
+				call,
+				text: 'Tool error: empty tool name. Call integrity_apply_patch with path and hunks/patch, or another integrity_* tool.',
+			});
+			continue;
+		}
+		const rejected = rejectionForMisroutedToolCall(call.name, call.input);
+		if (rejected) {
+			slots.push({ call, text: rejected });
+			continue;
+		}
+		if (!isMutatingTool(call.name)) {
+			stream.progress(`Running \`${call.name}\`…`);
+			slots.push({ call, text: await invokeNamedTool(call, request, token) });
+			continue;
+		}
+		mutating.push({ slot: slots.length, call });
+		slots.push({ call, text: '' });
+	}
+
+	if (mutating.length) {
+		const linked = beginCancellation(token);
+		let verdicts = new Map<string, ApprovalVerdict>();
+		try {
+			verdicts = await judgeMutatingCalls(mutating.map(({ call }) => ({
+				id: call.callId,
+				name: call.name,
+				input: call.input,
+			})), linked.signal);
+		} catch (err) {
+			if (isAbortError(err) || token.isCancellationRequested) {
+				return undefined;
+			}
+		} finally {
+			linked.end();
+		}
+
+		for (let index = 0; index < mutating.length; index++) {
+			if (token.isCancellationRequested) {
+				return undefined;
+			}
+			const { slot, call } = mutating[index];
+			const verdict = verdicts.get(approvalQuestionId(call.callId, index)) ?? {
+				action: 'block' as const,
+				message: blockedMutatingToolMessage(call.name),
+			};
+			if (verdict.action === 'block') {
+				stream.progress(`Blocked \`${call.name}\` until Jev answers.`);
+				slots[slot].text = verdict.message;
+				continue;
+			}
+			if (verdict.action === 'prompt') {
+				const approved = await confirmMutatingTool(approvalPrompt(call.name, call.input));
+				if (token.isCancellationRequested) {
+					return undefined;
+				}
+				if (!approved) {
+					slots[slot].text = `Tool error: ${call.name} cancelled by user.`;
+					continue;
+				}
+			}
+			stream.progress(`Running \`${call.name}\`…`);
+			slots[slot].text = await invokeNamedTool(call, request, token);
+		}
+	}
+
+	return slots.map(slot => new vscode.LanguageModelToolResultPart(
+		slot.call.callId,
+		[new vscode.LanguageModelTextPart(slot.text)],
+	));
+}
+
+async function invokeNamedTool(
+	call: vscode.LanguageModelToolCallPart,
+	request: vscode.ChatRequest,
+	token: vscode.CancellationToken,
+): Promise<string> {
+	try {
+		const result = await vscode.lm.invokeTool(call.name, {
+			input: call.input,
+			toolInvocationToken: request.toolInvocationToken,
+		}, token);
+		return toolResultToText(result);
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		return `Tool error: ${message}`;
+	}
+}
+
+function approvalPrompt(name: string, input: unknown): string {
+	const path = extractPathFromInput(input).raw;
+	switch (name) {
+		case IntegrityToolName.CreateFile:
+			return path ? `Create/overwrite file ${path}?` : 'Create file?';
+		case IntegrityToolName.ReplaceString:
+			return path ? `Apply unique replace in ${path}?` : 'Apply unique replace?';
+		case IntegrityToolName.ApplyPatch:
+			return path ? `Apply patch to ${path}?` : 'Apply patch?';
+		default: {
+			if (isTerminalTool(name)) {
+				const command = commandFromInput(input);
+				return command ? `Run terminal command: ${command}?` : 'Run this terminal command?';
+			}
+			return `Run ${name}?`;
+		}
+	}
+}
+
+function commandFromInput(input: unknown): string | undefined {
+	if (!input || typeof input !== 'object' || Array.isArray(input)) {
+		return undefined;
+	}
+	const command = (input as Record<string, unknown>).command;
+	if (typeof command !== 'string' || !command.trim()) {
+		return undefined;
+	}
+	const trimmed = command.trim();
+	return trimmed.length > 180 ? trimmed.slice(0, 180) + '…' : trimmed;
+}
+
+async function confirmMutatingTool(message: string): Promise<boolean> {
+	const approved = await vscode.window.showInformationMessage(
+		message,
+		{ modal: true },
+		'Apply',
+		'Cancel',
+	);
+	return approved === 'Apply';
+}
+
+/**
  * Register the default Integrity chat participant.
  */
-export function registerChatParticipant(context: vscode.ExtensionContext): void {
+export function registerChatParticipant(context: vscode.ExtensionContext, index: CodebaseSearchIndex): void {
 	const participant = vscode.chat.createChatParticipant(
 		'integrity.integrity-ai',
 		async (request, context, stream, token) => {
-			return runChatAgentLoop(request, context, stream, token);
+			return runChatAgentLoop(request, context, stream, token, index);
 		},
 	);
 	participant.iconPath = new vscode.ThemeIcon('shield');
