@@ -20,15 +20,15 @@ function getElectronVersion(): string {
 
 function getEntitlementsForFile(filePath: string): string {
 	if (filePath.includes(' Helper (GPU).app')) {
-		return path.join(baseDir, 'azure-pipelines', 'darwin', 'helper-gpu-entitlements.plist');
+		return path.join(baseDir, 'darwin', 'helper-gpu-entitlements.plist');
 	} else if (filePath.includes(' Helper (Renderer).app')) {
-		return path.join(baseDir, 'azure-pipelines', 'darwin', 'helper-renderer-entitlements.plist');
+		return path.join(baseDir, 'darwin', 'helper-renderer-entitlements.plist');
 	} else if (filePath.includes(' Helper (Plugin).app')) {
-		return path.join(baseDir, 'azure-pipelines', 'darwin', 'helper-plugin-entitlements.plist');
+		return path.join(baseDir, 'darwin', 'helper-plugin-entitlements.plist');
 	} else if (filePath.includes(' Helper.app')) {
-		return path.join(baseDir, 'azure-pipelines', 'darwin', 'helper-entitlements.plist');
+		return path.join(baseDir, 'darwin', 'helper-entitlements.plist');
 	}
-	return path.join(baseDir, 'azure-pipelines', 'darwin', 'app-entitlements.plist');
+	return path.join(baseDir, 'darwin', 'app-entitlements.plist');
 }
 
 async function retrySignOnKeychainError<T>(fn: () => Promise<T>, maxRetries: number = 3): Promise<T> {

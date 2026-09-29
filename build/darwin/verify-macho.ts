@@ -23,9 +23,6 @@ const MACHO_X86_64_CPU_TYPE = new Set([
 
 // Files to skip during architecture validation
 const FILES_TO_SKIP = [
-	// MSAL runtime files are only present in ARM64 builds
-	'**/extensions/microsoft-authentication/dist/libmsalruntime.dylib',
-	'**/extensions/microsoft-authentication/dist/msal-node-runtime.node',
 	// Copilot SDK: universal app has both x64 and arm64 platform packages
 	'**/node_modules/@github/copilot-darwin-x64/**',
 	'**/node_modules/@github/copilot-darwin-arm64/**',
@@ -34,7 +31,7 @@ const FILES_TO_SKIP = [
 	// Copilot prebuilds: single-arch binaries in per-platform directories
 	'**/node_modules/@github/copilot/prebuilds/darwin-*/**',
 	'**/node_modules.asar.unpacked/@github/copilot/prebuilds/darwin-*/**',
-	// Copilot SDK (extensions/copilot): single-arch prebuilds and ripgrep binaries
+	// Copilot SDK: single-arch prebuilds and ripgrep binaries
 	'**/node_modules/@github/copilot/sdk/prebuilds/darwin-*/**',
 	'**/node_modules/@github/copilot/sdk/ripgrep/bin/darwin-*/**',
 	// ripgrep-universal: single-arch binaries in per-platform directories

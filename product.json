@@ -40,7 +40,6 @@
 		"resourceUrlTemplate": "https://open-vsx.org/vscode/asset/{publisher}/{name}/{version}/Microsoft.VisualStudio.Code.WebResources/{path}"
 	},
 	"agentsTelemetryAppName": "agents",
-	"webviewContentExternalBaseUrlTemplate": "https://{{uuid}}.vscode-cdn.net/insider/ef65ac1ba57f57f2a3961bfe94aa20481caca4c6/out/vs/workbench/contrib/webview/browser/pre/",
 	"builtInExtensions": [
 		{
 			"name": "ms-vscode.js-debug-companion",
@@ -122,13 +121,10 @@
 	},
 	"trustedExtensionAuthAccess": {
 		"github": [
-			"GitHub.copilot-chat"
+			"vscode.github"
 		],
 		"github-enterprise": [
-			"GitHub.copilot-chat"
-		],
-		"microsoft": [
-			"vscode.github-authentication"
+			"vscode.github"
 		]
 	},
 	"onboardingKeymaps": [
