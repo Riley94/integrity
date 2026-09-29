@@ -33,8 +33,8 @@ jobs:
           ELECTRON_SKIP_BINARY_DOWNLOAD: 1
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
 
-      - name: Guard against restored upstream workflows
-        run: node --experimental-strip-types --test build/npm/integrityWorkflows.test.ts
+      - name: Guard against restored upstream product surface
+        run: node --experimental-strip-types --test 'build/npm/*.test.ts'
 
       - name: Compile integrity-ai extension
         run: npm run gulp -- compile-extension:integrity-ai
