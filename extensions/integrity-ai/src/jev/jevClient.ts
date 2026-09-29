@@ -8,6 +8,12 @@
  * Jev returns typed decisions; it does not write code or call tools.
  */
 
+/**
+ * Hosted System One API root. `thejevai.com` is the public playground and
+ * rejects TypeSafe API keys with 401, so it must not be used as the default.
+ */
+export const JEV_DEFAULT_BASE_URL = 'https://api.typesafe.ai';
+
 /** Initial request plus two retries for 429 and 529. */
 const MAX_ATTEMPTS = 3;
 

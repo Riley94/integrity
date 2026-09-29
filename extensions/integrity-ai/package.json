@@ -94,8 +94,8 @@
         },
         "integrity.ai.jev.baseUrl": {
           "type": "string",
-          "default": "https://thejevai.com",
-          "description": "Jev System One API base URL"
+          "default": "https://api.typesafe.ai",
+          "description": "Jev System One API base URL (hosted API, not the playground at thejevai.com)"
         },
         "integrity.ai.jev.model": {
           "type": "string",

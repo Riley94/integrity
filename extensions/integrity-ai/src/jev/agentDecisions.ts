@@ -14,7 +14,7 @@ export const COMPLETION_UNVERIFIED_MESSAGE =
 	'Completion could not be verified because Jev did not answer. Continue the task. Do not repeat the previous summary.';
 
 export const COMPLETION_BLOCKED_MESSAGE =
-	'This turn cannot be finished until Jev answers. Set integrity.ai.jev.apiKey and try again.';
+	'This turn cannot be finished until Jev answers. Check integrity.ai.jev.apiKey and integrity.ai.jev.baseUrl, then try again.';
 
 export interface JevThresholds {
 	approvalThreshold: number;

@@ -26,9 +26,9 @@ import {
 import {
 	type JevAnswer,
 	type JevClientConfig,
+	JEV_DEFAULT_BASE_URL,
 	evaluateJev,
 	isAbortError,
-	isJevUnavailable,
 } from './jevClient';
 
 export interface JevRuntime {
@@ -46,7 +46,7 @@ export function readJevRuntime(): JevRuntime {
 	return {
 		config: {
 			apiKey: cfg.get<string>('jev.apiKey', ''),
-			baseUrl: cfg.get<string>('jev.baseUrl', 'https://thejevai.com'),
+			baseUrl: cfg.get<string>('jev.baseUrl', JEV_DEFAULT_BASE_URL),
 			model: cfg.get<string>('jev.model', 'jev-latest'),
 		},
 		thresholds: {
@@ -187,16 +187,26 @@ async function evaluateOrUnavailable(
 ): Promise<Record<string, JevAnswer> | null> {
 	try {
 		const result = await evaluateJev(config, request.state, request.questions, { signal });
+		logJev(`${result.model} answered ${Object.keys(result.answers).length} question(s).`);
 		return result.answers;
 	} catch (err) {
 		if (isAbortError(err)) {
 			throw err;
 		}
-		if (isJevUnavailable(err)) {
-			return null;
-		}
+		const message = err instanceof Error ? err.message : String(err);
+		logJev(`${message} (${config.baseUrl})`);
 		return null;
 	}
+}
+
+let output: vscode.OutputChannel | undefined;
+
+/** Append a Jev diagnostic. Does not log keys, state, or question payloads. */
+function logJev(message: string): void {
+	if (!output) {
+		output = vscode.window.createOutputChannel('Integrity AI');
+	}
+	output.appendLine(`[Jev] ${message}`);
 }
 
 function unit(value: number, fallback: number): number {

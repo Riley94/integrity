@@ -5,11 +5,14 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { JevUnavailable, evaluateJev, isJevUnavailable } from '../jevClient';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { JevUnavailable, JEV_DEFAULT_BASE_URL, evaluateJev, isJevUnavailable } from '../jevClient';
 
 const config = {
 	apiKey: 'sk_test_secret',
-	baseUrl: 'https://thejevai.com/',
+	baseUrl: `${JEV_DEFAULT_BASE_URL}/`,
 	model: 'jev-latest',
 };
 
@@ -43,7 +46,7 @@ describe('evaluateJev', () => {
 			},
 		});
 
-		assert.equal(seenUrl, 'https://thejevai.com/v1/systemone');
+		assert.equal(seenUrl, 'https://api.typesafe.ai/v1/systemone');
 		assert.equal(seenInit?.method, 'POST');
 		assert.equal((seenInit?.headers as Record<string, string>).Authorization, 'Bearer sk_test_secret');
 		const body = JSON.parse(String(seenInit?.body));
@@ -164,5 +167,17 @@ describe('evaluateJev', () => {
 			(err: unknown) => isJevUnavailable(err) && (err as Error).message === 'Jev request failed: 529',
 		);
 		assert.equal(calls, 3);
+	});
+
+	it('defaults to the hosted System One API, not the playground', () => {
+		assert.equal(JEV_DEFAULT_BASE_URL, 'https://api.typesafe.ai');
+		const pkgPath = join(dirname(fileURLToPath(import.meta.url)), '../../../package.json');
+		const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as {
+			contributes: { configuration: { properties: Record<string, { default?: string }> } };
+		};
+		assert.equal(
+			pkg.contributes.configuration.properties['integrity.ai.jev.baseUrl'].default,
+			JEV_DEFAULT_BASE_URL,
+		);
 	});
 });

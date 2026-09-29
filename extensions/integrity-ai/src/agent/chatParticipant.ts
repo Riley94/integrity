@@ -138,6 +138,7 @@ export async function runChatAgentLoop(
 
 	let model: vscode.LanguageModelChat;
 	try {
+		stream.progress('Consulting Jev…');
 		model = await selectWriterModel(request.prompt, mode, selected, token);
 	} catch (err) {
 		if (isAbortError(err) || token.isCancellationRequested) {
@@ -164,6 +165,7 @@ export async function runChatAgentLoop(
 
 	let retrieved = '';
 	try {
+		stream.progress('Ranking context with Jev…');
 		retrieved = await rankedPrefetch(index, request.prompt, token);
 	} catch (err) {
 		if (isAbortError(err) || token.isCancellationRequested) {
@@ -244,6 +246,7 @@ export async function runChatAgentLoop(
 			}
 			let decision: CompletionDecision;
 			try {
+				stream.progress('Checking completion with Jev…');
 				decision = await completionDecision(request.prompt, textOut, completionUnavailableStreak > 0, token);
 			} catch (err) {
 				if (isAbortError(err) || token.isCancellationRequested) {
@@ -416,6 +419,7 @@ async function settleToolCalls(
 		const linked = beginCancellation(token);
 		let verdicts = new Map<string, ApprovalVerdict>();
 		try {
+			stream.progress('Asking Jev about tool calls…');
 			verdicts = await judgeMutatingCalls(mutating.map(({ call }) => ({
 				id: call.callId,
 				name: call.name,
