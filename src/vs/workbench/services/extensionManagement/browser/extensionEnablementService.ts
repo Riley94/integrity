@@ -88,7 +88,7 @@ export class ExtensionEnablementService extends Disposable implements IWorkbench
 		@IChatEntitlementService private readonly chatEntitlementService: IChatEntitlementService,
 		@IInstantiationService instantiationService: IInstantiationService,
 		@ILogService private readonly logService: ILogService,
-		@IProductService productService: IProductService
+		@IProductService private readonly productService: IProductService
 	) {
 		super();
 		this.storageManager = this._register(new StorageManager(storageService));
@@ -152,8 +152,21 @@ export class ExtensionEnablementService extends Disposable implements IWorkbench
 		this.ensureChatExtensionInitialDisabledState();
 	}
 
+	/**
+	 * Copilot delays activating its chat extension until signed-in setup completes.
+	 * Local-first products (no entitlement URL) must keep the default chat extension enabled.
+	 */
+	private requiresSignedInChatSetup(): boolean {
+		return !!this.productService.defaultChatAgent?.entitlementUrl;
+	}
+
 	private ensureChatExtensionInitialDisabledState(): void {
 		if (!this._chatExtensionId || this.environmentService.isSessionsWindow || this.environmentService.skipBuiltinExtensions?.some(id => id.toLowerCase() === this._chatExtensionId)) {
+			return;
+		}
+
+		if (!this.requiresSignedInChatSetup()) {
+			this.ensureLocalFirstChatExtensionEnabled();
 			return;
 		}
 
@@ -187,6 +200,23 @@ export class ExtensionEnablementService extends Disposable implements IWorkbench
 					this.logService.error('Failed to disable builtin chat extension during enablement migration', error);
 				}
 			}
+		}
+	}
+
+	/**
+	 * Re-enable the default chat extension when a Copilot-style first-run migration
+	 * disabled it on a local-first product (Integrity AI has no signed-in setup).
+	 */
+	private ensureLocalFirstChatExtensionEnabled(): void {
+		const localFirstChatExtensionEnablementMigrationKey = 'localFirstChatExtensionEnablementMigration';
+		if (this.storageService.getBoolean(localFirstChatExtensionEnablementMigrationKey, StorageScope.PROFILE) === true) {
+			return;
+		}
+
+		this.storageService.store(localFirstChatExtensionEnablementMigrationKey, true, StorageScope.PROFILE, StorageTarget.MACHINE);
+		if (this._isDisabledGlobally({ id: this._chatExtensionId! })) {
+			this.logService.debug('Re-enabling local-first default chat extension');
+			this._enableExtension({ id: this._chatExtensionId! });
 		}
 	}
 
@@ -661,7 +691,15 @@ export class ExtensionEnablementService extends Disposable implements IWorkbench
 	}
 
 	private _isDisabledByUnification(identifier: IExtensionIdentifier): boolean {
-		return this._extensionUnificationEnabled && identifier.id.toLowerCase() === this._completionsExtensionId;
+		if (!this._extensionUnificationEnabled || !this._completionsExtensionId) {
+			return false;
+		}
+		// Unification disables a separate completions extension in favor of chat.
+		// Products that use one extension for both IDs must keep that extension enabled.
+		if (this._completionsExtensionId === this._chatExtensionId) {
+			return false;
+		}
+		return identifier.id.toLowerCase() === this._completionsExtensionId;
 	}
 
 	private _isDisabledBySessionsWindow(extension: IExtension): boolean {

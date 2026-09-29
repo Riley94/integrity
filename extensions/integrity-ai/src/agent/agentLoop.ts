@@ -8,6 +8,11 @@ import type { ProviderRouter } from '../providers/router';
 import type { Message } from '../providers/types';
 import { AgentTools, loadAgentRules } from './tools';
 
+/**
+ * Legacy webview agent loop (JSON tool-calling).
+ * Native Chat uses {@link runChatAgentLoop} in chatParticipant.ts instead.
+ * Kept so the Integrity Status webview Agent checkbox still works.
+ */
 const TOOL_SCHEMA = `You are an agent in Integrity IDE. Respond with JSON tool calls when you need to act.
 
 Available tools:

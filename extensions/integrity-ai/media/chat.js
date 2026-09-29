@@ -5,11 +5,29 @@
 	const sendBtn = document.getElementById('send');
 	const clearBtn = document.getElementById('clear');
 	const agentCheckbox = document.getElementById('agent-mode');
+	const openNativeBtn = document.getElementById('open-native');
+	const startOllamaBtn = document.getElementById('start-ollama');
+	const setupModelsBtn = document.getElementById('setup-models');
 	const activeMentions = new Set();
 
 	let streamingEl = null;
 	let streamBuffer = '';
 
+	if (openNativeBtn) {
+		openNativeBtn.addEventListener('click', () => {
+			vscode.postMessage({ type: 'openNativeChat' });
+		});
+	}
+	if (startOllamaBtn) {
+		startOllamaBtn.addEventListener('click', () => {
+			vscode.postMessage({ type: 'startOllama' });
+		});
+	}
+	if (setupModelsBtn) {
+		setupModelsBtn.addEventListener('click', () => {
+			vscode.postMessage({ type: 'setupModels' });
+		});
+	}
 	document.querySelectorAll('.mention').forEach(btn => {
 		btn.addEventListener('click', () => {
 			const mention = btn.dataset.mention;

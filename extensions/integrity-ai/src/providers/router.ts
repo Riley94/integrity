@@ -4,8 +4,154 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as vscode from 'vscode';
-import type { ChatOpts, CompleteOpts, Message, ModelInfo, ModelProvider, ProviderConfig, ProviderId } from './types';
+import type { ChatOpts, ChatPart, CompleteOpts, Message, ModelInfo, ModelProvider, ProviderConfig, ProviderId, ToolCall } from './types';
 import { streamLines } from './types';
+import {
+	AnthropicToolCallAccumulator,
+	OpenAIToolCallAccumulator,
+	parseOllamaChatLine,
+	toolsToAnthropicFormat,
+	toolsToOpenAIFormat,
+} from './streamParsers';
+import { applyJsonToolCallFallback } from './jsonToolFallback';
+
+async function* textFromParts(parts: AsyncIterable<ChatPart>): AsyncIterable<string> {
+	for await (const part of parts) {
+		if (part.type === 'text') {
+			yield part.text;
+		}
+	}
+}
+
+function messagesForOpenAI(messages: Message[]): object[] {
+	return messages.map(m => {
+		if (m.role === 'tool') {
+			return {
+				role: 'tool',
+				tool_call_id: m.toolCallId,
+				content: m.content,
+			};
+		}
+		if (m.role === 'assistant' && m.toolCalls?.length) {
+			return {
+				role: 'assistant',
+				content: m.content || null,
+				tool_calls: m.toolCalls.map(tc => ({
+					id: tc.id,
+					type: 'function',
+					function: {
+						name: tc.name,
+						arguments: JSON.stringify(tc.arguments),
+					},
+				})),
+			};
+		}
+		return { role: m.role, content: m.content };
+	});
+}
+
+function messagesForOllama(messages: Message[]): object[] {
+	return messages.map(m => {
+		if (m.role === 'tool') {
+			return {
+				role: 'tool',
+				content: m.content,
+				tool_name: m.name,
+			};
+		}
+		if (m.role === 'assistant' && m.toolCalls?.length) {
+			return {
+				role: 'assistant',
+				content: m.content,
+				tool_calls: m.toolCalls.map(tc => ({
+					id: tc.id,
+					function: {
+						name: tc.name,
+						arguments: tc.arguments,
+					},
+				})),
+			};
+		}
+		return { role: m.role, content: m.content };
+	});
+}
+
+function messagesForAnthropic(messages: Message[]): { system?: string; messages: object[] } {
+	const system = messages.find(m => m.role === 'system')?.content;
+	const convo: object[] = [];
+
+	for (const m of messages) {
+		if (m.role === 'system') {
+			continue;
+		}
+		if (m.role === 'tool') {
+			convo.push({
+				role: 'user',
+				content: [{
+					type: 'tool_result',
+					tool_use_id: m.toolCallId,
+					content: m.content,
+				}],
+			});
+			continue;
+		}
+		if (m.role === 'assistant' && m.toolCalls?.length) {
+			const content: object[] = [];
+			if (m.content) {
+				content.push({ type: 'text', text: m.content });
+			}
+			for (const tc of m.toolCalls) {
+				content.push({
+					type: 'tool_use',
+					id: tc.id,
+					name: tc.name,
+					input: tc.arguments,
+				});
+			}
+			convo.push({ role: 'assistant', content });
+			continue;
+		}
+		convo.push({
+			role: m.role === 'assistant' ? 'assistant' : 'user',
+			content: m.content,
+		});
+	}
+
+	return { system, messages: convo };
+}
+
+/**
+ * Yield chat parts, then apply JSON tool-call fallback when the model
+ * returned only text despite tools being offered.
+ */
+async function* withJsonFallback(
+	parts: AsyncIterable<ChatPart>,
+	toolsEnabled: boolean,
+): AsyncIterable<ChatPart> {
+	if (!toolsEnabled) {
+		yield* parts;
+		return;
+	}
+
+	let text = '';
+	let hadNativeToolCalls = false;
+	for await (const part of parts) {
+		if (part.type === 'text') {
+			text += part.text;
+			yield part;
+		} else {
+			hadNativeToolCalls = true;
+			yield part;
+		}
+	}
+
+	if (!hadNativeToolCalls && text.trim()) {
+		const recovered = applyJsonToolCallFallback(text, false);
+		for (const tc of recovered.toolCalls) {
+			yield { type: 'tool_call', toolCall: tc };
+		}
+	}
+}
 
 export class OllamaProvider implements ModelProvider {
 	readonly id = 'ollama';
@@ -17,19 +163,29 @@ export class OllamaProvider implements ModelProvider {
 	}
 
 	async *chat(messages: Message[], opts?: ChatOpts): AsyncIterable<string> {
+		yield* textFromParts(this.chatParts(messages, opts));
+	}
+
+	async *chatParts(messages: Message[], opts?: ChatOpts): AsyncIterable<ChatPart> {
 		const model = opts?.model ?? this.config.chatModel;
+		const tools = opts?.tools?.length ? toolsToOpenAIFormat(opts.tools) : undefined;
+		const body: Record<string, unknown> = {
+			model,
+			messages: messagesForOllama(messages),
+			stream: true,
+			options: {
+				temperature: opts?.temperature ?? 0.2,
+				num_predict: opts?.maxTokens ?? 4096,
+			},
+		};
+		if (tools) {
+			body.tools = tools;
+		}
+
 		const response = await fetch(this.url('/api/chat'), {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({
-				model,
-				messages: messages.map(m => ({ role: m.role, content: m.content })),
-				stream: true,
-				options: {
-					temperature: opts?.temperature ?? 0.2,
-					num_predict: opts?.maxTokens ?? 4096,
-				},
-			}),
+			body: JSON.stringify(body),
 			signal: opts?.signal,
 		});
 
@@ -37,16 +193,15 @@ export class OllamaProvider implements ModelProvider {
 			throw new Error(`Ollama chat failed: ${response.status} ${await response.text()}`);
 		}
 
-		for await (const line of streamLines(response.body)) {
-			try {
-				const parsed = JSON.parse(line) as { message?: { content?: string }; done?: boolean };
-				if (parsed.message?.content) {
-					yield parsed.message.content;
+		async function* parseStream(stream: ReadableStream<Uint8Array>): AsyncIterable<ChatPart> {
+			for await (const line of streamLines(stream)) {
+				for (const part of parseOllamaChatLine(line)) {
+					yield part;
 				}
-			} catch {
-				// skip malformed chunks
 			}
 		}
+
+		yield* withJsonFallback(parseStream(response.body), !!tools);
 	}
 
 	async *complete(prompt: string, opts?: CompleteOpts): AsyncIterable<string> {
@@ -116,17 +271,30 @@ export class OpenAICompatProvider implements ModelProvider {
 	}
 
 	async *chat(messages: Message[], opts?: ChatOpts): AsyncIterable<string> {
+		yield* textFromParts(this.chatParts(messages, opts));
+	}
+
+	async *chatParts(messages: Message[], opts?: ChatOpts): AsyncIterable<ChatPart> {
 		const model = opts?.model ?? this.config.model;
+		const tools = opts?.tools?.length ? toolsToOpenAIFormat(opts.tools) : undefined;
+		const body: Record<string, unknown> = {
+			model,
+			messages: messagesForOpenAI(messages),
+			stream: true,
+			temperature: opts?.temperature ?? 0.2,
+			max_tokens: opts?.maxTokens ?? 4096,
+		};
+		if (tools) {
+			body.tools = tools;
+			if (opts?.toolChoice && opts.toolChoice !== 'auto') {
+				body.tool_choice = opts.toolChoice;
+			}
+		}
+
 		const response = await fetch(this.url('/chat/completions'), {
 			method: 'POST',
 			headers: this.headers(),
-			body: JSON.stringify({
-				model,
-				messages: messages.map(m => ({ role: m.role, content: m.content })),
-				stream: true,
-				temperature: opts?.temperature ?? 0.2,
-				max_tokens: opts?.maxTokens ?? 4096,
-			}),
+			body: JSON.stringify(body),
 			signal: opts?.signal,
 		});
 
@@ -134,24 +302,26 @@ export class OpenAICompatProvider implements ModelProvider {
 			throw new Error(`OpenAI-compatible chat failed: ${response.status}`);
 		}
 
-		for await (const line of streamLines(response.body)) {
-			if (!line.startsWith('data: ')) {
-				continue;
-			}
-			const payload = line.slice(6).trim();
-			if (payload === '[DONE]') {
-				break;
-			}
-			try {
-				const parsed = JSON.parse(payload) as { choices?: Array<{ delta?: { content?: string } }> };
-				const content = parsed.choices?.[0]?.delta?.content;
-				if (content) {
-					yield content;
+		async function* parseStream(stream: ReadableStream<Uint8Array>): AsyncIterable<ChatPart> {
+			const accumulator = new OpenAIToolCallAccumulator();
+			for await (const line of streamLines(stream)) {
+				if (!line.startsWith('data: ')) {
+					continue;
 				}
-			} catch {
-				// skip
+				const payload = line.slice(6).trim();
+				for (const part of accumulator.ingest(payload)) {
+					yield part;
+				}
+				if (payload === '[DONE]') {
+					break;
+				}
+			}
+			for (const part of accumulator.finish()) {
+				yield part;
 			}
 		}
+
+		yield* withJsonFallback(parseStream(response.body), !!tools);
 	}
 
 	async *complete(prompt: string, opts?: CompleteOpts): AsyncIterable<string> {
@@ -203,23 +373,33 @@ export class AnthropicProvider implements ModelProvider {
 	}
 
 	async *chat(messages: Message[], opts?: ChatOpts): AsyncIterable<string> {
+		yield* textFromParts(this.chatParts(messages, opts));
+	}
+
+	async *chatParts(messages: Message[], opts?: ChatOpts): AsyncIterable<ChatPart> {
 		const model = opts?.model ?? this.config.model;
-		const system = messages.find(m => m.role === 'system')?.content;
-		const convo = messages.filter(m => m.role !== 'system').map(m => ({
-			role: m.role === 'assistant' ? 'assistant' : 'user',
-			content: m.content,
-		}));
+		const { system, messages: convo } = messagesForAnthropic(messages);
+		const tools = opts?.tools?.length ? toolsToAnthropicFormat(opts.tools) : undefined;
+		const body: Record<string, unknown> = {
+			model,
+			max_tokens: opts?.maxTokens ?? 4096,
+			system,
+			messages: convo,
+			stream: true,
+		};
+		if (tools) {
+			body.tools = tools;
+			if (opts?.toolChoice === 'required') {
+				body.tool_choice = { type: 'any' };
+			} else if (opts?.toolChoice === 'none') {
+				body.tool_choice = { type: 'none' };
+			}
+		}
 
 		const response = await fetch('https://api.anthropic.com/v1/messages', {
 			method: 'POST',
 			headers: this.headers(),
-			body: JSON.stringify({
-				model,
-				max_tokens: opts?.maxTokens ?? 4096,
-				system,
-				messages: convo,
-				stream: true,
-			}),
+			body: JSON.stringify(body),
 			signal: opts?.signal,
 		});
 
@@ -227,22 +407,19 @@ export class AnthropicProvider implements ModelProvider {
 			throw new Error(`Anthropic chat failed: ${response.status}`);
 		}
 
-		for await (const line of streamLines(response.body)) {
-			if (!line.startsWith('data: ')) {
-				continue;
-			}
-			try {
-				const parsed = JSON.parse(line.slice(6)) as {
-					type?: string;
-					delta?: { type?: string; text?: string };
-				};
-				if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
-					yield parsed.delta.text;
+		async function* parseStream(stream: ReadableStream<Uint8Array>): AsyncIterable<ChatPart> {
+			const accumulator = new AnthropicToolCallAccumulator();
+			for await (const line of streamLines(stream)) {
+				if (!line.startsWith('data: ')) {
+					continue;
 				}
-			} catch {
-				// skip
+				for (const part of accumulator.ingest(line.slice(6))) {
+					yield part;
+				}
 			}
 		}
+
+		yield* withJsonFallback(parseStream(response.body), !!tools);
 	}
 
 	async *complete(prompt: string, opts?: CompleteOpts): AsyncIterable<string> {
@@ -304,6 +481,10 @@ export function getProviderConfig(): ProviderConfig {
 export class ProviderRouter {
 	constructor(private readonly config: ProviderConfig) { }
 
+	getConfig(): ProviderConfig {
+		return this.config;
+	}
+
 	getProvider(id?: ProviderId): ModelProvider {
 		const providerId = id ?? this.config.defaultProvider;
 		switch (providerId) {
@@ -344,3 +525,5 @@ export class ProviderRouter {
 		return new OllamaProvider(this.config.ollama);
 	}
 }
+
+export type { ToolCall };

@@ -16,6 +16,16 @@
   "activationEvents": [
     "onStartupFinished"
   ],
+  "enabledApiProposals": [
+    "defaultChatParticipant",
+    "chatParticipantAdditions",
+    "chatParticipantPrivate",
+    "chatProvider",
+    "findTextInFiles",
+    "textSearchProvider",
+    "languageModelSystem",
+    "languageModelThinkingPart"
+  ],
   "main": "./out/extension",
   "contributes": {
     "configuration": {
@@ -95,14 +105,323 @@
         "integrity.ai.agent.requireEditApproval": {
           "type": "boolean",
           "default": true,
-          "description": "Show diff preview before applying multi-line edits"
+          "description": "Show confirmation before applying agent file edits"
+        },
+        "integrity.ai.agent.maxSteps": {
+          "type": "number",
+          "default": 24,
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Maximum tool-calling steps per agent turn"
         }
       }
     },
+    "languageModelChatProviders": [
+      {
+        "vendor": "integrity",
+        "displayName": "Integrity AI",
+        "managementCommand": "integrity.ai.testConnection"
+      }
+    ],
+    "chatParticipants": [
+      {
+        "id": "integrity.integrity-ai",
+        "name": "integrity",
+        "fullName": "Integrity AI",
+        "description": "Local-first coding assistant with Ask, Edit, and Agent modes",
+        "isDefault": true,
+        "locations": ["panel"],
+        "modes": ["ask", "edit", "agent"]
+      }
+    ],
+    "languageModelTools": [
+      {
+        "name": "integrity_read_file",
+        "toolReferenceName": "readFile",
+        "displayName": "Read File",
+        "modelDescription": "Read a workspace-relative file before editing when it may already exist. Returns file contents (truncated). Prefer this over browser tools for inspecting source files.",
+        "icon": "$(file)",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Workspace-relative file path (e.g. main.py). Absolute paths under the workspace are accepted. Aliases: filePath, file_path."
+            },
+            "filePath": {
+              "type": "string",
+              "description": "Alias for path"
+            },
+            "file_path": {
+              "type": "string",
+              "description": "Alias for path"
+            },
+            "filepath": {
+              "type": "string",
+              "description": "Alias for path"
+            }
+          },
+          "required": ["path"]
+        },
+        "tags": ["integrity"]
+      },
+      {
+        "name": "integrity_list_dir",
+        "toolReferenceName": "listDir",
+        "displayName": "List Directory",
+        "modelDescription": "List files and directories at a workspace-relative path.",
+        "icon": "$(folder)",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Workspace-relative directory path (default '.'). Absolute paths under the workspace are accepted. Aliases: filePath, file_path."
+            },
+            "filePath": {
+              "type": "string",
+              "description": "Alias for path"
+            },
+            "file_path": {
+              "type": "string",
+              "description": "Alias for path"
+            }
+          }
+        },
+        "tags": ["integrity"]
+      },
+      {
+        "name": "integrity_create_file",
+        "toolReferenceName": "createFile",
+        "displayName": "Create File",
+        "modelDescription": "Create a brand-new file with the given content. Use only when the path does not exist yet; if it already exists, use integrity_apply_patch instead. Fails if the file exists unless overwrite is true.",
+        "icon": "$(new-file)",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Workspace-relative file path (e.g. main.py). Absolute paths under the workspace are accepted. Aliases: filePath, file_path."
+            },
+            "filePath": {
+              "type": "string",
+              "description": "Alias for path"
+            },
+            "file_path": {
+              "type": "string",
+              "description": "Alias for path"
+            },
+            "filepath": {
+              "type": "string",
+              "description": "Alias for path"
+            },
+            "content": {
+              "type": "string",
+              "description": "File contents"
+            },
+            "overwrite": {
+              "type": "boolean",
+              "description": "Overwrite if the file already exists"
+            }
+          },
+          "required": ["path", "content"]
+        },
+        "tags": ["integrity"]
+      },
+      {
+        "name": "integrity_replace_string",
+        "toolReferenceName": "replaceString",
+        "displayName": "Replace String In File",
+        "modelDescription": "Replace a unique oldText with newText in a file. Use only for an exact in-place swap when oldText appears once. Do not use this (or browser/Playwright tools) to append or add new code — prefer integrity_apply_patch. Fails if oldText is missing or appears more than once.",
+        "icon": "$(replace)",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Workspace-relative file path (e.g. main.py). Absolute paths under the workspace are accepted. Aliases: filePath, file_path."
+            },
+            "filePath": {
+              "type": "string",
+              "description": "Alias for path"
+            },
+            "file_path": {
+              "type": "string",
+              "description": "Alias for path"
+            },
+            "filepath": {
+              "type": "string",
+              "description": "Alias for path"
+            },
+            "oldText": {
+              "type": "string",
+              "description": "Exact text to find (must be unique)"
+            },
+            "newText": {
+              "type": "string",
+              "description": "Replacement text"
+            }
+          },
+          "required": ["path", "oldText", "newText"]
+        },
+        "tags": ["integrity"]
+      },
+      {
+        "name": "integrity_apply_patch",
+        "toolReferenceName": "applyPatch",
+        "displayName": "Apply Patch",
+        "modelDescription": "Preferred way to add code to an existing file, insert or replace unique spans, or create a missing file. Prefer hunks: [{ \"newText\": \"...\" }] to append/create, or hunks with oldText for a unique replace. You may also pass patch or content as a string to append/create. Not for browsing or running code.",
+        "icon": "$(diff)",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Workspace-relative file path (e.g. main.py). Absolute paths under the workspace are accepted. Aliases: filePath, file_path."
+            },
+            "filePath": {
+              "type": "string",
+              "description": "Alias for path"
+            },
+            "file_path": {
+              "type": "string",
+              "description": "Alias for path"
+            },
+            "filepath": {
+              "type": "string",
+              "description": "Alias for path"
+            },
+            "hunks": {
+              "type": "array",
+              "description": "Ordered patch hunks applied left-to-right. Prefer this shape.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "oldText": {
+                    "type": "string",
+                    "description": "Unique text to replace. Omit or leave empty to append (or create the file on the first hunk)."
+                  },
+                  "newText": {
+                    "type": "string",
+                    "description": "Replacement or appended text"
+                  }
+                },
+                "required": ["newText"]
+              }
+            },
+            "patch": {
+              "type": "string",
+              "description": "Alias for a single append/create hunk: same as hunks: [{ newText: <patch> }]"
+            },
+            "content": {
+              "type": "string",
+              "description": "Alias for patch / append-or-create text"
+            }
+          },
+          "required": ["path"]
+        },
+        "tags": ["integrity"]
+      },
+      {
+        "name": "integrity_grep_search",
+        "toolReferenceName": "grepSearch",
+        "displayName": "Grep Search",
+        "modelDescription": "Search workspace file contents with a regular expression pattern.",
+        "icon": "$(search)",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "pattern": {
+              "type": "string",
+              "description": "Regular expression pattern"
+            },
+            "glob": {
+              "type": "string",
+              "description": "Optional glob to limit files (e.g. **/*.ts)"
+            },
+            "maxResults": {
+              "type": "number",
+              "description": "Maximum matches to return"
+            }
+          },
+          "required": ["pattern"]
+        },
+        "tags": ["integrity"]
+      },
+      {
+        "name": "integrity_file_search",
+        "toolReferenceName": "fileSearch",
+        "displayName": "File Search",
+        "modelDescription": "Find files by glob pattern.",
+        "icon": "$(files)",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "glob": {
+              "type": "string",
+              "description": "Glob pattern (e.g. **/package.json)"
+            },
+            "maxResults": {
+              "type": "number"
+            }
+          },
+          "required": ["glob"]
+        },
+        "tags": ["integrity"]
+      },
+      {
+        "name": "integrity_codebase_search",
+        "toolReferenceName": "codebase",
+        "displayName": "Codebase Search",
+        "modelDescription": "Semantic search over the local Integrity codebase index.",
+        "icon": "$(sparkle)",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "Natural language query"
+            }
+          },
+          "required": ["query"]
+        },
+        "tags": ["integrity", "codesearch"]
+      },
+      {
+        "name": "integrity_get_errors",
+        "toolReferenceName": "problems",
+        "displayName": "Get Errors",
+        "modelDescription": "List workspace diagnostics (errors and warnings), optionally filtered by path.",
+        "icon": "$(warning)",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Optional workspace-relative path filter. Absolute paths under the workspace are accepted. Aliases: filePath, file_path."
+            },
+            "filePath": {
+              "type": "string",
+              "description": "Alias for path"
+            },
+            "file_path": {
+              "type": "string",
+              "description": "Alias for path"
+            }
+          }
+        },
+        "tags": ["integrity"]
+      }
+    ],
     "commands": [
       {
         "command": "integrity.ai.openChat",
         "title": "Open Integrity Chat",
+        "category": "Integrity"
+      },
+      {
+        "command": "integrity.ai.openStatus",
+        "title": "Open Integrity Status",
         "category": "Integrity"
       },
       {
@@ -111,9 +430,16 @@
         "category": "Integrity"
       },
       {
+        "command": "integrity.ai.startOllama",
+        "title": "Start Ollama",
+        "category": "Integrity",
+        "icon": "$(play)"
+      },
+      {
         "command": "integrity.ai.setupModels",
         "title": "Setup Recommended Models (Ollama)",
-        "category": "Integrity"
+        "category": "Integrity",
+        "icon": "$(cloud-download)"
       },
       {
         "command": "integrity.ai.reindexCodebase",
@@ -122,7 +448,7 @@
       },
       {
         "command": "integrity.ai.toggleAgentMode",
-        "title": "Toggle Agent Mode",
+        "title": "Toggle Agent Mode (legacy webview)",
         "category": "Integrity"
       },
       {
@@ -150,7 +476,21 @@
         {
           "type": "webview",
           "id": "integrity.ai.chatView",
-          "name": "Chat"
+          "name": "Status"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "integrity.ai.startOllama",
+          "when": "view == integrity.ai.chatView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "integrity.ai.setupModels",
+          "when": "view == integrity.ai.chatView",
+          "group": "navigation@2"
         }
       ]
     },
@@ -164,7 +504,8 @@
   },
   "scripts": {
     "compile": "gulp compile-extension:integrity-ai",
-    "watch": "gulp watch-extension:integrity-ai"
+    "watch": "gulp watch-extension:integrity-ai",
+    "test": "npx --yes tsx --test src/**/test/*.test.ts src/**/test/**/*.test.ts"
   },
   "devDependencies": {
     "@types/node": "24.x"

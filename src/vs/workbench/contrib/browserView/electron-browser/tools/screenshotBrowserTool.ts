@@ -30,7 +30,7 @@ export const ScreenshotBrowserToolData: IToolData = {
 	toolReferenceName: BrowserChatToolReferenceName.ScreenshotPage,
 	displayName: localize('screenshotBrowserTool.displayName', 'Screenshot Page'),
 	userDescription: localize('screenshotBrowserTool.userDescription', 'Capture a screenshot of a browser page'),
-	modelDescription: `Capture a screenshot of the current browser page. You can't perform actions based on the screenshot; use ${ReadBrowserToolData.id} for actions.`,
+	modelDescription: `Capture a screenshot of the current browser page. You can't perform actions based on the screenshot; use ${ReadBrowserToolData.id} for actions. Does not write workspace files.`,
 	icon: Codicon.deviceCamera,
 	source: ToolDataSource.Internal,
 	inputSchema: {

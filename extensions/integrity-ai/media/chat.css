@@ -13,6 +13,48 @@ body {
 	height: 100vh;
 }
 
+#banner {
+	padding: 10px 12px;
+	border-bottom: 1px solid var(--vscode-panel-border);
+	background: var(--vscode-editorWidget-background);
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+#banner p {
+	margin: 0;
+	opacity: 0.9;
+}
+
+#banner-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+#banner-actions button {
+	background: var(--vscode-button-background);
+	color: var(--vscode-button-foreground);
+	border: none;
+	padding: 6px 10px;
+	border-radius: 4px;
+	cursor: pointer;
+}
+
+#banner-actions button:hover {
+	background: var(--vscode-button-hoverBackground);
+}
+
+#banner-actions button.secondary {
+	background: var(--vscode-button-secondaryBackground);
+	color: var(--vscode-button-secondaryForeground);
+}
+
+#banner-actions button.secondary:hover {
+	background: var(--vscode-button-secondaryHoverBackground);
+}
+
 #messages {
 	flex: 1;
 	overflow-y: auto;

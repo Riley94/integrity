@@ -5,7 +5,8 @@
 
 import * as vscode from 'vscode';
 import * as path from 'path';
-import type { ProviderRouter } from '../providers/router';
+import { getProviderConfig, type ProviderRouter } from '../providers/router';
+import { ensureOllamaModelReady, isOllamaModelReady, ollamaModelNotReadyMessage } from '../ollama/ensureOllamaModel';
 import type { Message } from '../providers/types';
 import { ChatHistory } from './chatHistory';
 import { CodebaseIndex } from '../indexing/indexManager';
@@ -53,6 +54,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 				case 'toggleAgent':
 					this.agentMode = !!msg.enabled;
 					break;
+				case 'openNativeChat':
+					await vscode.commands.executeCommand('integrity.ai.openChat');
+					break;
+				case 'startOllama':
+					await vscode.commands.executeCommand('integrity.ai.startOllama');
+					break;
+				case 'setupModels':
+					await vscode.commands.executeCommand('integrity.ai.setupModels');
+					break;
 				case 'applyCode':
 					await vscode.commands.executeCommand('integrity.ai.applyCodeBlock', msg.code, msg.language);
 					break;
@@ -85,6 +95,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 			return;
 		}
 
+		// Prefer native Chat for agent work.
+		if (this.agentMode) {
+			await vscode.commands.executeCommand('workbench.action.chat.open', {
+				mode: 'agent',
+				query: text,
+			});
+			return;
+		}
+
 		await this.history.add('user', text);
 		this.view?.webview.postMessage({ type: 'userMessage', content: text });
 
@@ -100,6 +119,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 			}
 
 			const provider = await this.router.getAvailableProvider();
+			if (provider.id === 'ollama') {
+				const model = getProviderConfig().ollama.chatModel;
+				const result = await ensureOllamaModelReady(model);
+				if (!isOllamaModelReady(result)) {
+					this.view?.webview.postMessage({
+						type: 'error',
+						message: ollamaModelNotReadyMessage(model, result),
+					});
+					return;
+				}
+			}
+
 			const messages: Message[] = [
 				{ role: 'system', content: systemPrompt },
 				...this.history.getAll().slice(-20).map(m => ({
@@ -208,6 +239,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 	<link rel="stylesheet" href="${styleUri}">
 </head>
 <body>
+	<div id="banner">
+		<p><strong>Agentic coding</strong> now lives in the native Chat panel (Ask / Edit / Agent).</p>
+		<div id="banner-actions">
+			<button id="open-native">Open Chat (Agent)</button>
+			<button id="start-ollama" class="secondary">Start Ollama</button>
+			<button id="setup-models" class="secondary">Setup Models</button>
+		</div>
+	</div>
 	<div id="messages"></div>
 	<div id="input-area">
 		<div id="mentions">
@@ -216,9 +255,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 			<button class="mention" data-mention="folder">@folder</button>
 			<button class="mention" data-mention="codebase">@codebase</button>
 		</div>
-		<textarea id="input" placeholder="Ask Integrity AI..." rows="3"></textarea>
+		<textarea id="input" placeholder="Legacy status chat… prefer Open Chat above" rows="3"></textarea>
 		<div id="toolbar">
-			<label><input type="checkbox" id="agent-mode"> Agent mode</label>
+			<label><input type="checkbox" id="agent-mode"> Agent mode (legacy)</label>
 			<button id="clear">Clear</button>
 			<button id="send">Send</button>
 		</div>

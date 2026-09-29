@@ -18,7 +18,7 @@ import { IBrowserViewWorkbenchService } from '../../common/browserView.js';
 
 export const OpenBrowserToolNonAgenticData: IToolData = {
 	...OpenBrowserToolData,
-	modelDescription: 'Open a new browser page in the integrated browser at the given URL.',
+	modelDescription: 'Open a new browser page in the integrated browser at the given URL. Does not create or edit workspace files. Do not pass a source path as url.',
 	inputSchema: {
 		...OpenBrowserToolData.inputSchema,
 		required: ['url'],

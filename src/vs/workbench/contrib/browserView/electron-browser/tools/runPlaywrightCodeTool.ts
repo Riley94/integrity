@@ -18,7 +18,8 @@ export const RunPlaywrightCodeToolData: IToolData = {
 	toolReferenceName: BrowserChatToolReferenceName.RunPlaywrightCode,
 	displayName: localize('runPlaywrightCodeTool.displayName', 'Run Playwright Code'),
 	userDescription: localize('runPlaywrightCodeTool.userDescription', 'Run a Playwright code snippet against a browser page'),
-	modelDescription: `Run a Playwright code snippet to control a browser page. Only use this if other browser tools are insufficient.`,
+	modelDescription: `Run a Playwright code snippet to control a browser page. Only use this if other browser tools are insufficient.
+The code parameter must drive the provided Playwright page object (for example page.evaluate or page.click). Never use this tool to write Python/JS into the workspace — use Integrity file tools (integrity_apply_patch / integrity_replace_string / integrity_create_file) instead.`,
 	icon: Codicon.terminal,
 	source: ToolDataSource.Internal,
 	inputSchema: {

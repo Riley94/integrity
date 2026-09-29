@@ -21,7 +21,7 @@ export const TypeBrowserToolData: IToolData = {
 	toolReferenceName: BrowserChatToolReferenceName.TypeInPage,
 	displayName: localize('typeBrowserTool.displayName', 'Type in Page'),
 	userDescription: localize('typeBrowserTool.userDescription', 'Type text or press keys in a browser page'),
-	modelDescription: 'Type text or press keys in a browser page.',
+	modelDescription: 'Type text or press keys in a browser page. Does not write workspace files.',
 	icon: Codicon.symbolText,
 	source: ToolDataSource.Internal,
 	inputSchema: {

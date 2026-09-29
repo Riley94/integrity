@@ -3,11 +3,19 @@
  *  Licensed under the MIT License.
  *--------------------------------------------------------------------------------------------*/
 
+/**
+ * Chat message roles used by Integrity providers.
+ */
 export interface Message {
 	role: 'system' | 'user' | 'assistant' | 'tool';
 	content: string;
 	name?: string;
 	toolCallId?: string;
+	/**
+	 * Tool calls emitted by an assistant turn (OpenAI-style).
+	 * Used when replaying history into subsequent provider requests.
+	 */
+	toolCalls?: ToolCall[];
 }
 
 export interface ModelInfo {
@@ -15,20 +23,65 @@ export interface ModelInfo {
 	name: string;
 }
 
+/**
+ * JSON Schema describing a tool the model may call.
+ */
+export interface ToolDefinition {
+	name: string;
+	description: string;
+	parameters?: object;
+}
+
+/**
+ * A single tool invocation requested by the model.
+ */
+export interface ToolCall {
+	id: string;
+	name: string;
+	arguments: Record<string, unknown>;
+}
+
+/**
+ * Streaming chat response parts: either text or a completed tool call.
+ */
+export type ChatPart =
+	| { type: 'text'; text: string }
+	| { type: 'tool_call'; toolCall: ToolCall };
+
 export interface ChatOpts {
 	model?: string;
 	temperature?: number;
 	maxTokens?: number;
 	signal?: AbortSignal;
+	/**
+	 * Tools available for this request. When set, providers should
+	 * request native function calling when the backend supports it.
+	 */
+	tools?: readonly ToolDefinition[];
+	/**
+	 * When true, force the model to call a tool (provider-dependent).
+	 */
+	toolChoice?: 'auto' | 'required' | 'none';
 }
 
 export interface CompleteOpts extends ChatOpts {
 	stop?: string[];
 }
 
+/**
+ * Model provider contract. Prefer {@link ModelProvider.chatParts} for
+ * agent loops; {@link ModelProvider.chat} remains a text-only convenience.
+ */
 export interface ModelProvider {
 	readonly id: string;
+	/**
+	 * Text-only streaming chat. Ignores tool call parts.
+	 */
 	chat(messages: Message[], opts?: ChatOpts): AsyncIterable<string>;
+	/**
+	 * Streaming chat that yields text and tool-call parts.
+	 */
+	chatParts(messages: Message[], opts?: ChatOpts): AsyncIterable<ChatPart>;
 	complete(prompt: string, opts?: CompleteOpts): AsyncIterable<string>;
 	embed(texts: string[], opts?: ChatOpts): Promise<number[][]>;
 	listModels(): Promise<ModelInfo[]>;
@@ -82,6 +135,16 @@ export async function* streamLines(body: ReadableStream<Uint8Array>): AsyncItera
 	}
 }
 
+/**
+ * Rough token estimate (~4 chars/token). Good enough for v1 budgeting.
+ */
+export function estimateTokenCount(text: string): number {
+	if (!text) {
+		return 0;
+	}
+	return Math.max(1, Math.ceil(text.length / 4));
+}
+
 export function cosineSimilarity(a: number[], b: number[]): number {
 	let dot = 0;
 	let normA = 0;
@@ -96,4 +159,22 @@ export function cosineSimilarity(a: number[], b: number[]): number {
 		return 0;
 	}
 	return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
+/**
+ * Collect all parts from a chatParts stream into text + toolCalls.
+ */
+export async function collectChatParts(
+	parts: AsyncIterable<ChatPart>,
+): Promise<{ text: string; toolCalls: ToolCall[] }> {
+	let text = '';
+	const toolCalls: ToolCall[] = [];
+	for await (const part of parts) {
+		if (part.type === 'text') {
+			text += part.text;
+		} else {
+			toolCalls.push(part.toolCall);
+		}
+	}
+	return { text, toolCalls };
 }
