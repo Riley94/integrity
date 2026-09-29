@@ -10,15 +10,21 @@ import {
 	COMPLETION_UNVERIFIED_MESSAGE,
 	approvalQuestionId,
 	blockedMutatingToolMessage,
+	TOOL_SURFACE_NONE_QUESTION,
+	TOOL_SURFACE_QUESTION,
 	buildApprovalRequest,
 	buildRetrievalRequest,
 	buildRoutingRequest,
+	buildToolSurfaceRequest,
+	filterToolsForSurface,
 	formatRetrievedChunks,
 	interpretApproval,
 	interpretCompletion,
 	interpretRetrieval,
 	interpretRouting,
+	interpretToolSurface,
 	isMutatingTool,
+	offeredToolSurfaces,
 	retrievalQuestionId,
 } from '../agentDecisions';
 import type { JevAnswer } from '../jevClient';
@@ -107,6 +113,160 @@ describe('interpretRouting', () => {
 
 	it('does not build a request when there are no candidates', () => {
 		assert.equal(buildRoutingRequest('fix the bug', 'agent', 'ollama:qwen', []), undefined);
+	});
+});
+
+const surfaceTools = [
+	{ name: 'integrity_read_file', description: 'Read a file' },
+	{ name: 'integrity_apply_patch', description: 'Apply a patch' },
+	{ name: 'run_in_terminal', description: 'Run a command' },
+];
+
+describe('interpretToolSurface', () => {
+	const offered = offeredToolSurfaces(surfaceTools.map(tool => tool.name));
+	const base = {
+		offered,
+		toolSurfaceConfidence: 0.6,
+	};
+
+	it('selects a confident allowlisted ceiling when none-suitable is low', () => {
+		assert.equal(interpretToolSurface({
+			...base,
+			unavailable: false,
+			answers: {
+				[TOOL_SURFACE_QUESTION]: choice('edit', 0.6),
+				[TOOL_SURFACE_NONE_QUESTION]: noul(0.59),
+			},
+		}), 'edit');
+	});
+
+	it('keeps the full list on low confidence', () => {
+		assert.equal(interpretToolSurface({
+			...base,
+			unavailable: false,
+			answers: {
+				[TOOL_SURFACE_QUESTION]: choice('read', 0.59),
+				[TOOL_SURFACE_NONE_QUESTION]: noul(0.1),
+			},
+		}), undefined);
+	});
+
+	it('keeps the full list when none of the ceilings are suitable', () => {
+		assert.equal(interpretToolSurface({
+			...base,
+			unavailable: false,
+			answers: {
+				[TOOL_SURFACE_QUESTION]: choice('act', 0.9),
+				[TOOL_SURFACE_NONE_QUESTION]: noul(0.6),
+			},
+		}), undefined);
+	});
+
+	it('keeps the full list when the chosen id was not offered', () => {
+		assert.equal(interpretToolSurface({
+			...base,
+			unavailable: false,
+			answers: {
+				[TOOL_SURFACE_QUESTION]: choice('browse', 0.99),
+				[TOOL_SURFACE_NONE_QUESTION]: noul(0),
+			},
+		}), undefined);
+	});
+
+	it('keeps the full list when Jev is unavailable', () => {
+		assert.equal(interpretToolSurface({
+			...base,
+			unavailable: true,
+			answers: undefined,
+		}), undefined);
+	});
+
+	it('keeps the full list when the answer shape is wrong', () => {
+		assert.equal(interpretToolSurface({
+			...base,
+			unavailable: false,
+			answers: {
+				[TOOL_SURFACE_QUESTION]: noul(0.9),
+				[TOOL_SURFACE_NONE_QUESTION]: choice('edit', 0.9),
+			},
+		}), undefined);
+		assert.equal(interpretToolSurface({
+			...base,
+			unavailable: false,
+			answers: {
+				[TOOL_SURFACE_QUESTION]: choice('edit', 0.9),
+			},
+		}), undefined);
+	});
+});
+
+describe('buildToolSurfaceRequest', () => {
+	it('offers every distinct ceiling and sends the tool catalog', () => {
+		const request = buildToolSurfaceRequest('fix the bug', 'agent', surfaceTools);
+		assert.ok(request);
+		const surface = request.questions[TOOL_SURFACE_QUESTION];
+		assert.equal(surface.type, 'choice');
+		if (surface.type === 'choice') {
+			assert.deepEqual(Object.keys(surface.criteria), ['reply', 'read', 'edit', 'act']);
+		}
+		assert.equal(request.questions[TOOL_SURFACE_NONE_QUESTION].type, 'noul');
+		const state = request.state as { mode: string; tools: { name: string; description: string }[] };
+		assert.equal(state.mode, 'agent');
+		assert.deepEqual(state.tools.map(tool => tool.name), surfaceTools.map(tool => tool.name));
+	});
+
+	it('drops ceilings that do not change the set', () => {
+		const readOnly = buildToolSurfaceRequest('explain this', 'ask', [
+			{ name: 'integrity_read_file', description: 'Read a file' },
+			{ name: 'integrity_grep_search', description: 'Search' },
+		]);
+		assert.ok(readOnly);
+		const readSurface = readOnly.questions[TOOL_SURFACE_QUESTION];
+		assert.equal(readSurface.type, 'choice');
+		if (readSurface.type === 'choice') {
+			assert.deepEqual(Object.keys(readSurface.criteria), ['reply', 'read']);
+		}
+
+		const editOnly = buildToolSurfaceRequest('rename the function', 'edit', [
+			{ name: 'integrity_read_file', description: 'Read a file' },
+			{ name: 'integrity_apply_patch', description: 'Apply a patch' },
+		]);
+		assert.ok(editOnly);
+		const editSurface = editOnly.questions[TOOL_SURFACE_QUESTION];
+		assert.equal(editSurface.type, 'choice');
+		if (editSurface.type === 'choice') {
+			assert.deepEqual(Object.keys(editSurface.criteria), ['reply', 'read', 'edit']);
+		}
+	});
+
+	it('does not build a request when there are no tools', () => {
+		assert.equal(buildToolSurfaceRequest('hello', 'agent', []), undefined);
+		assert.deepEqual(offeredToolSurfaces([]), []);
+	});
+
+	it('clips long tool descriptions', () => {
+		const request = buildToolSurfaceRequest('hello', 'ask', [
+			{ name: 'integrity_read_file', description: 'x'.repeat(500) },
+		]);
+		assert.ok(request);
+		const state = request.state as { tools: { description: string }[] };
+		assert.equal(state.tools[0].description.length, 401);
+		assert.ok(state.tools[0].description.endsWith('…'));
+	});
+});
+
+describe('filterToolsForSurface', () => {
+	it('maps each ceiling onto the nested tool list', () => {
+		assert.deepEqual(filterToolsForSurface(surfaceTools, 'reply'), []);
+		assert.deepEqual(
+			filterToolsForSurface(surfaceTools, 'read').map(tool => tool.name),
+			['integrity_read_file'],
+		);
+		assert.deepEqual(
+			filterToolsForSurface(surfaceTools, 'edit').map(tool => tool.name),
+			['integrity_read_file', 'integrity_apply_patch'],
+		);
+		assert.deepEqual(filterToolsForSurface(surfaceTools, 'act'), surfaceTools);
 	});
 });
 

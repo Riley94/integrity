@@ -19,16 +19,19 @@ import {
 	type CompletionDecision,
 	approvalQuestionId,
 	blockedMutatingToolMessage,
+	filterToolsForSurface,
 	formatRetrievedChunks,
 	interpretCompletion,
 	isMutatingTool,
 	isTerminalTool,
+	type ToolSurface,
 } from '../jev/agentDecisions';
 import {
 	beginCancellation,
 	judgeCompletion,
 	judgeMutatingCalls,
 	rankChunksForContext,
+	routeToolSurface,
 	routeWriterModel,
 } from '../jev/forks';
 import { isAbortError } from '../jev/jevClient';
@@ -180,7 +183,27 @@ export async function runChatAgentLoop(
 	const extraContext = [referencesContext(request), retrieved].filter(part => part.trim()).join('\n\n');
 	const system = buildSystemPrompt(mode, agentRules, extraContext);
 
-	const tools = collectEnabledTools(request, mode);
+	let tools = collectEnabledTools(request, mode);
+	if (!request.toolReferences.length && tools.length) {
+		try {
+			stream.progress('Choosing tools with Jev…');
+			const surface = await selectToolSurface(request.prompt, mode, tools, token);
+			if (surface) {
+				const narrowed = filterToolsForSurface(tools, surface);
+				if (narrowed.length < tools.length) {
+					stream.progress(toolSurfaceProgress(surface));
+					tools = narrowed;
+				}
+			}
+		} catch (err) {
+			if (isAbortError(err) || token.isCancellationRequested) {
+				return {};
+			}
+		}
+		if (token.isCancellationRequested) {
+			return {};
+		}
+	}
 	const maxSteps = vscode.workspace.getConfiguration('integrity.ai').get<number>('agent.maxSteps', DEFAULT_MAX_STEPS);
 
 	const messages: vscode.LanguageModelChatMessage[] = [
@@ -324,6 +347,41 @@ async function selectWriterModel(
 		return candidates.find(candidate => candidate.id === switchTo) ?? selected;
 	} finally {
 		linked.end();
+	}
+}
+
+/**
+ * Pick a tool ceiling once per turn. A missing Jev answer keeps every tool the mode allows.
+ */
+async function selectToolSurface(
+	prompt: string,
+	mode: AgentModeKind,
+	tools: readonly vscode.LanguageModelChatTool[],
+	token: vscode.CancellationToken,
+): Promise<ToolSurface | undefined> {
+	const linked = beginCancellation(token);
+	try {
+		return await routeToolSurface(
+			prompt,
+			mode,
+			tools.map(tool => ({ name: tool.name, description: tool.description })),
+			linked.signal,
+		);
+	} finally {
+		linked.end();
+	}
+}
+
+function toolSurfaceProgress(surface: ToolSurface): string {
+	switch (surface) {
+		case 'reply':
+			return 'Answering without tools…';
+		case 'read':
+			return 'Tools limited to read…';
+		case 'edit':
+			return 'Tools limited to edit…';
+		case 'act':
+			return 'Tools limited to act…';
 	}
 }
 

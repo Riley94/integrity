@@ -3,11 +3,13 @@
  *  Licensed under the MIT License.
  *--------------------------------------------------------------------------------------------*/
 
-import { READ_ONLY_TOOLS } from '../agent/toolNames';
+import { EDIT_TOOLS, READ_ONLY_TOOLS } from '../agent/toolNames';
 import type { ChoiceQuestion, JevAnswer, JevQuestion, JevState, NoulQuestion } from './jevClient';
 
 export const ROUTING_MODEL_QUESTION = 'model';
 export const ROUTING_NONE_QUESTION = 'none_suitable';
+export const TOOL_SURFACE_QUESTION = 'surface';
+export const TOOL_SURFACE_NONE_QUESTION = 'none_suitable';
 export const COMPLETION_QUESTION = 'status';
 
 export const COMPLETION_UNVERIFIED_MESSAGE =
@@ -21,6 +23,15 @@ export interface JevThresholds {
 	routingConfidence: number;
 	retrievalThreshold: number;
 	completionConfidence: number;
+	toolSurfaceConfidence: number;
+}
+
+/** Nested tool ceiling. Each wider surface includes the tools of the narrower ones. */
+export type ToolSurface = 'reply' | 'read' | 'edit' | 'act';
+
+export interface ToolSurfaceTool {
+	name: string;
+	description: string;
 }
 
 export interface RoutingCandidate {
@@ -162,6 +173,153 @@ export function interpretRouting(args: {
 		return undefined;
 	}
 	return choice.choice;
+}
+
+const TOOL_SURFACE_CRITERIA: Record<ToolSurface, string> = {
+	reply: 'Answer in text. No tools.',
+	read: 'Inspect the codebase with read and search tools only.',
+	edit: 'Read the codebase and change files. Includes read tools.',
+	act: 'Use every tool this mode allows, including terminal and other workbench tools. Includes read and edit.',
+};
+
+/**
+ * Ceilings that would change the tool list. An empty catalog offers nothing.
+ * A ceiling is omitted when it filters to the same set as the next-narrower one.
+ */
+export function offeredToolSurfaces(toolNames: readonly string[]): ToolSurface[] {
+	if (!toolNames.length) {
+		return [];
+	}
+	let readCount = 0;
+	let editCount = 0;
+	let actCount = 0;
+	for (const name of toolNames) {
+		const rank = toolSurfaceRank(name);
+		if (rank === 'read') {
+			readCount++;
+		} else if (rank === 'edit') {
+			editCount++;
+		} else {
+			actCount++;
+		}
+	}
+	const offered: ToolSurface[] = ['reply'];
+	if (readCount > 0) {
+		offered.push('read');
+	}
+	if (editCount > 0) {
+		offered.push('edit');
+	}
+	if (actCount > 0) {
+		offered.push('act');
+	}
+	return offered;
+}
+
+/**
+ * Choice over nested tool ceilings, plus a Noul for "none of these".
+ * Returns undefined when the catalog cannot be narrowed.
+ */
+export function buildToolSurfaceRequest(
+	prompt: string,
+	mode: string,
+	tools: readonly ToolSurfaceTool[],
+): PreparedJevCall | undefined {
+	const offered = offeredToolSurfaces(tools.map(tool => tool.name));
+	if (!offered.length) {
+		return undefined;
+	}
+	const criteria: Record<string, string> = {};
+	for (const surface of offered) {
+		criteria[surface] = TOOL_SURFACE_CRITERIA[surface];
+	}
+	const choice: ChoiceQuestion = {
+		type: 'choice',
+		instructions: 'Which tool surface should the writer be allowed to use for this turn? Prefer the narrowest surface that can still carry out the task. Read is included in edit. Edit is included in act.',
+		criteria,
+	};
+	const noneSuitable: NoulQuestion = {
+		type: 'noul',
+		instructions: 'Is none of these tool surfaces suitable for this task?',
+		criteria: {
+			true: 'No offered surface should constrain this turn',
+			false: 'At least one surface is suitable',
+		},
+	};
+	return {
+		state: {
+			task: clip(prompt, 8000),
+			mode,
+			tools: tools.map(tool => ({
+				name: tool.name,
+				description: clip(tool.description, 400),
+			})),
+		},
+		questions: {
+			[TOOL_SURFACE_QUESTION]: choice,
+			[TOOL_SURFACE_NONE_QUESTION]: noneSuitable,
+		},
+	};
+}
+
+/**
+ * Narrow only when Jev is confident, the chosen ceiling was offered, and "none suitable" is below the threshold.
+ * Any failure keeps the mode's full tool list.
+ */
+export function interpretToolSurface(args: {
+	answers: Record<string, JevAnswer> | undefined;
+	unavailable: boolean;
+	offered: readonly ToolSurface[];
+	toolSurfaceConfidence: number;
+}): ToolSurface | undefined {
+	if (args.unavailable || !args.answers) {
+		return undefined;
+	}
+	const choice = args.answers[TOOL_SURFACE_QUESTION];
+	const none = args.answers[TOOL_SURFACE_NONE_QUESTION];
+	if (!choice || choice.type !== 'choice' || !none || none.type !== 'noul') {
+		return undefined;
+	}
+	if (choice.confidence < args.toolSurfaceConfidence) {
+		return undefined;
+	}
+	if (none.noul >= args.toolSurfaceConfidence) {
+		return undefined;
+	}
+	if (!isOfferedSurface(choice.choice, args.offered)) {
+		return undefined;
+	}
+	return choice.choice;
+}
+
+/**
+ * Apply a nested ceiling. `act` keeps every name; `reply` keeps none.
+ */
+export function filterToolsForSurface<T extends { name: string }>(tools: readonly T[], surface: ToolSurface): T[] {
+	if (surface === 'reply') {
+		return [];
+	}
+	if (surface === 'act') {
+		return [...tools];
+	}
+	if (surface === 'read') {
+		return tools.filter(tool => READ_ONLY_TOOLS.has(tool.name));
+	}
+	return tools.filter(tool => READ_ONLY_TOOLS.has(tool.name) || EDIT_TOOLS.has(tool.name));
+}
+
+function toolSurfaceRank(name: string): 'read' | 'edit' | 'act' {
+	if (READ_ONLY_TOOLS.has(name)) {
+		return 'read';
+	}
+	if (EDIT_TOOLS.has(name)) {
+		return 'edit';
+	}
+	return 'act';
+}
+
+function isOfferedSurface(value: string, offered: readonly ToolSurface[]): value is ToolSurface {
+	return (offered as readonly string[]).includes(value);
 }
 
 /**

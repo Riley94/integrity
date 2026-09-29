@@ -130,6 +130,13 @@
           "maximum": 1,
           "description": "Minimum Choice confidence required to treat a turn as complete"
         },
+        "integrity.ai.jev.toolSurfaceConfidence": {
+          "type": "number",
+          "default": 0.6,
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Minimum Choice confidence required to narrow the writer's tool list"
+        },
         "integrity.ai.inlineCompletions.enabled": {
           "type": "boolean",
           "default": true,

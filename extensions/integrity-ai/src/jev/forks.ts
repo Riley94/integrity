@@ -12,16 +12,21 @@ import {
 	type ProposedToolCall,
 	type RetrievalHit,
 	type RoutingCandidate,
+	type ToolSurface,
+	type ToolSurfaceTool,
 	COMPLETION_QUESTION,
 	approvalQuestionId,
 	buildApprovalRequest,
 	buildCompletionRequest,
 	buildRetrievalRequest,
 	buildRoutingRequest,
+	buildToolSurfaceRequest,
 	interpretApproval,
 	interpretCompletion,
 	interpretRetrieval,
 	interpretRouting,
+	interpretToolSurface,
+	offeredToolSurfaces,
 } from './agentDecisions';
 import {
 	type JevAnswer,
@@ -54,6 +59,7 @@ export function readJevRuntime(): JevRuntime {
 			routingConfidence: unit(cfg.get<number>('jev.routingConfidence', 0.6), 0.6),
 			retrievalThreshold: unit(cfg.get<number>('jev.retrievalThreshold', 0.5), 0.5),
 			completionConfidence: unit(cfg.get<number>('jev.completionConfidence', 0.6), 0.6),
+			toolSurfaceConfidence: unit(cfg.get<number>('jev.toolSurfaceConfidence', 0.6), 0.6),
 		},
 		requireEditApproval: cfg.get<boolean>('agent.requireEditApproval', true),
 		requireTerminalApproval: cfg.get<boolean>('agent.requireTerminalApproval', true),
@@ -82,6 +88,30 @@ export async function routeWriterModel(
 		unavailable: answers === null,
 		candidateIds: candidates.map(candidate => candidate.id),
 		routingConfidence: thresholds.routingConfidence,
+	});
+}
+
+/**
+ * Tool ceiling for this turn, or undefined to keep every tool the mode already allows.
+ * A missing key or failed call keeps the full list.
+ */
+export async function routeToolSurface(
+	prompt: string,
+	mode: string,
+	tools: readonly ToolSurfaceTool[],
+	signal?: AbortSignal,
+): Promise<ToolSurface | undefined> {
+	const request = buildToolSurfaceRequest(prompt, mode, tools);
+	if (!request) {
+		return undefined;
+	}
+	const { config, thresholds } = readJevRuntime();
+	const answers = await evaluateOrUnavailable(config, request, signal);
+	return interpretToolSurface({
+		answers: answers ?? undefined,
+		unavailable: answers === null,
+		offered: offeredToolSurfaces(tools.map(tool => tool.name)),
+		toolSurfaceConfidence: thresholds.toolSurfaceConfidence,
 	});
 }
 
