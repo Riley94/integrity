@@ -40,8 +40,10 @@ suite('ChatActions provider config', () => {
 		});
 
 		assert.strictEqual(config.provider.enterprise, undefined);
+		const context = getNonEnterpriseCopilotUsersContext(config);
+		assert.ok(context);
 		assert.strictEqual(
-			getNonEnterpriseCopilotUsersContext(config).serialize(),
+			context.serialize(),
 			ChatContextKeys.enabled.serialize()
 		);
 	});
@@ -55,8 +57,10 @@ suite('ChatActions provider config', () => {
 			completionsAdvancedSetting: 'github.copilot.advanced',
 		});
 
+		const context = getNonEnterpriseCopilotUsersContext(config);
+		assert.ok(context);
 		assert.strictEqual(
-			getNonEnterpriseCopilotUsersContext(config).serialize(),
+			context.serialize(),
 			ContextKeyExpr.and(
 				ChatContextKeys.enabled,
 				ContextKeyExpr.notEquals('config.github.copilot.advanced.authProvider', 'github-enterprise')
