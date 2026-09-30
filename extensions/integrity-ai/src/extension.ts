@@ -16,6 +16,7 @@ import { InlineCompletionProvider } from './completion/inlineCompletionProvider'
 import { runOnboarding, setupRecommendedModels, startOllamaFromIde } from './onboarding/setupModels';
 import { registerOllamaModelInstallPrompt } from './ollama/ensureOllamaModel';
 import { registerAgentDiffProvider } from './agent/diffProvider';
+import { runBenchmarkTurn } from './swebench/runBenchmarkTurn';
 
 let chatProvider: ChatViewProvider;
 
@@ -59,6 +60,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
 	await index.initialize(context);
 	await runOnboarding(context);
+	await runBenchmarkTurn();
 
 	const output = vscode.window.createOutputChannel('Integrity AI');
 	context.subscriptions.push(output);

@@ -33,6 +33,7 @@ import {
 	evaluateJev,
 	isAbortError,
 } from './jevClient';
+import { approvalFloors, isSweBenchBenchmark } from '../swebench/benchmarkMode';
 
 export interface JevRuntime {
 	config: JevClientConfig;
@@ -43,6 +44,7 @@ export interface JevRuntime {
 
 /**
  * Read Jev and approval settings. Thresholds are clamped to 0..1.
+ * A SWE-bench smoke run clears the edit and terminal approval floors.
  */
 export function readJevRuntime(): JevRuntime {
 	const cfg = vscode.workspace.getConfiguration('integrity.ai');
@@ -58,8 +60,10 @@ export function readJevRuntime(): JevRuntime {
 			completionConfidence: unit(cfg.get<number>('jev.completionConfidence', 0.6), 0.6),
 			toolSurfaceConfidence: unit(cfg.get<number>('jev.toolSurfaceConfidence', 0.5), 0.5),
 		},
-		requireEditApproval: cfg.get<boolean>('agent.requireEditApproval', true),
-		requireTerminalApproval: cfg.get<boolean>('agent.requireTerminalApproval', true),
+		...approvalFloors({
+			requireEditApproval: cfg.get<boolean>('agent.requireEditApproval', true),
+			requireTerminalApproval: cfg.get<boolean>('agent.requireTerminalApproval', true),
+		}, isSweBenchBenchmark()),
 	};
 }
 
