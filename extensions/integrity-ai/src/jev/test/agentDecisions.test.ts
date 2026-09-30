@@ -541,7 +541,9 @@ describe('explainCompletion', () => {
 	});
 
 	it('prints the completion state and the Noul question ahead of the reply', () => {
-		const request = buildCompletionRequest('fix the test', 'done');
+		const request = buildCompletionRequest('fix the test', 'done', [
+			{ name: 'integrity_replace_string', input: { path: 'a.ts', oldText: 'a', newText: 'b' } },
+		]);
 		const trace = explainCompletion({
 			answer: noul(0.2),
 			unavailable: false,
@@ -551,10 +553,55 @@ describe('explainCompletion', () => {
 		const text = formatJevDebug(request, trace.text);
 		assert.match(text, /"task": "fix the test"/);
 		assert.match(text, /"assistantText": "done"/);
+		assert.match(text, /"name": "integrity_replace_string"/);
+		assert.match(text, /"path": "a.ts"/);
 		assert.match(text, /"type": "noul"/);
 		assert.match(text, /Is the task complete\?/);
 		assert.match(text, /status: incomplete/);
 		assert.ok(text.endsWith('\n\n' + trace.text));
+	});
+});
+
+describe('buildCompletionRequest', () => {
+	it('sends an empty tool call list when the turn has not called a tool', () => {
+		const request = buildCompletionRequest('fix the test', 'done');
+		const state = request.state as { toolCalls: unknown[] };
+		assert.deepEqual(state.toolCalls, []);
+	});
+
+	it('includes the tool call name and arguments', () => {
+		const request = buildCompletionRequest('fix the test', 'done', [
+			{ name: 'integrity_replace_string', input: { path: 'a.ts', oldText: 'a', newText: 'b' } },
+		]);
+		const state = request.state as { toolCalls: Array<{ name: string; arguments: { path: string; newText: string } }> };
+		assert.equal(state.toolCalls.length, 1);
+		assert.equal(state.toolCalls[0].name, 'integrity_replace_string');
+		assert.equal(state.toolCalls[0].arguments.path, 'a.ts');
+		assert.equal(state.toolCalls[0].arguments.newText, 'b');
+	});
+
+	it('clips a tool call argument that exceeds the per-call limit', () => {
+		const request = buildCompletionRequest('task', 'done', [
+			{ name: 'integrity_create_file', input: { content: 'y'.repeat(5000) } },
+		]);
+		const state = request.state as { toolCalls: Array<{ arguments: string }> };
+		assert.equal(typeof state.toolCalls[0].arguments, 'string');
+		assert.ok(state.toolCalls[0].arguments.endsWith('…'));
+		assert.ok(state.toolCalls[0].arguments.length < 5000);
+	});
+
+	it('keeps the latest tool calls when the list exceeds the state budget', () => {
+		const body = 'x'.repeat(3000);
+		const calls = Array.from({ length: 5 }, (_, index) => ({
+			name: `tool_${index}`,
+			input: { body },
+		}));
+		const request = buildCompletionRequest('task', 'done', calls);
+		const state = request.state as { toolCalls: Array<{ name: string }> };
+		assert.ok(state.toolCalls.length >= 1);
+		assert.ok(state.toolCalls.length < calls.length);
+		assert.equal(state.toolCalls.at(-1)?.name, 'tool_4');
+		assert.equal(state.toolCalls.some(call => call.name === 'tool_0'), false);
 	});
 });
 

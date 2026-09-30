@@ -44,6 +44,12 @@ export interface ProposedToolCall {
 	input: unknown;
 }
 
+/** A tool invocation from this turn. Completion uses it as evidence the reply may omit. */
+export interface CompletionToolCall {
+	name: string;
+	input: unknown;
+}
+
 export interface PreparedJevCall {
 	state: JevState;
 	questions: Record<string, JevQuestion>;
@@ -456,7 +462,22 @@ export function blockedMutatingToolMessage(toolName: string): string {
 	return `Tool error: mutating tool ${toolName} was blocked because Jev did not answer.`;
 }
 
-export function buildCompletionRequest(task: string, assistantText: string): PreparedJevCall {
+/** Per-call argument cap, same as approval. */
+const COMPLETION_TOOL_ARGUMENT_LIMIT = 4000;
+
+/** Whole tool-call list cap, same scale as the task and reply clips. */
+const COMPLETION_TOOL_CALLS_LIMIT = 8000;
+
+/**
+ * State for the completion Noul.
+ * `toolCalls` is every invocation already made on this turn, newest calls kept when the list is long.
+ * A short reply often leaves out the edit or command that finished the task.
+ */
+export function buildCompletionRequest(
+	task: string,
+	assistantText: string,
+	toolCalls: readonly CompletionToolCall[] = [],
+): PreparedJevCall {
 	const question: NoulQuestion = {
 		type: 'noul',
 		instructions: 'Is the task complete?',
@@ -469,11 +490,36 @@ export function buildCompletionRequest(task: string, assistantText: string): Pre
 		state: {
 			task: clip(task, 8000),
 			assistantText: clip(assistantText, 8000),
+			toolCalls: completionToolCalls(toolCalls),
 		},
 		questions: {
 			[COMPLETION_QUESTION]: question,
 		},
 	};
+}
+
+/**
+ * Keep calls in order. Drop the oldest once the serialized list would pass the budget,
+ * so the invocations closest to the reply survive.
+ */
+function completionToolCalls(calls: readonly CompletionToolCall[]): unknown[] {
+	const encoded: unknown[] = [];
+	let used = 2;
+	for (let index = calls.length - 1; index >= 0; index--) {
+		const call = calls[index];
+		const entry = {
+			name: call.name,
+			arguments: clipJson(call.input, COMPLETION_TOOL_ARGUMENT_LIMIT),
+		};
+		const size = JSON.stringify(entry).length + (encoded.length ? 1 : 0);
+		if (encoded.length > 0 && used + size > COMPLETION_TOOL_CALLS_LIMIT) {
+			break;
+		}
+		used += size;
+		encoded.push(entry);
+	}
+	encoded.reverse();
+	return encoded;
 }
 
 /** Raw completion answer plus the host decision. */

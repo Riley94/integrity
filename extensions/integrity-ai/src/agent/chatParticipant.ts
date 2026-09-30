@@ -15,6 +15,7 @@ import {
 	COMPLETION_BLOCKED_MESSAGE,
 	COMPLETION_UNVERIFIED_MESSAGE,
 	type ApprovalVerdict,
+	type CompletionToolCall,
 	approvalQuestionId,
 	blockedMutatingToolMessage,
 	describeSkippedToolSurface,
@@ -183,6 +184,7 @@ export async function runChatAgentLoop(
 	];
 
 	let completionUnavailableStreak = 0;
+	const turnToolCalls: CompletionToolCall[] = [];
 
 	for (let step = 0; step < maxSteps; step++) {
 		if (token.isCancellationRequested) {
@@ -238,7 +240,7 @@ export async function runChatAgentLoop(
 			let checked;
 			try {
 				stream.progress('Checking completion with Jev…');
-				checked = await completionDecision(request.prompt, textOut, completionUnavailableStreak > 0, token);
+				checked = await completionDecision(request.prompt, textOut, turnToolCalls, completionUnavailableStreak > 0, token);
 			} catch (err) {
 				if (isAbortError(err) || token.isCancellationRequested) {
 					return {};
@@ -251,7 +253,7 @@ export async function runChatAgentLoop(
 				});
 				checked = {
 					...explained,
-					request: buildCompletionRequest(request.prompt, textOut),
+					request: buildCompletionRequest(request.prompt, textOut, turnToolCalls),
 				};
 			}
 			if (token.isCancellationRequested) {
@@ -274,6 +276,9 @@ export async function runChatAgentLoop(
 		}
 
 		messages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
+		for (const call of toolCalls) {
+			turnToolCalls.push({ name: call.name, input: call.input });
+		}
 
 		const resultParts = await settleToolCalls(toolCalls, selectedTool?.name, request, stream, token);
 		if (!resultParts) {
@@ -350,12 +355,13 @@ async function rankedPrefetch(
 async function completionDecision(
 	task: string,
 	assistantText: string,
+	toolCalls: readonly CompletionToolCall[],
 	priorUnavailable: boolean,
 	token: vscode.CancellationToken,
 ): Promise<CompletionCheck> {
 	const linked = beginCancellation(token);
 	try {
-		return await judgeCompletion(task, assistantText, priorUnavailable, linked.signal);
+		return await judgeCompletion(task, assistantText, toolCalls, priorUnavailable, linked.signal);
 	} catch (err) {
 		if (isAbortError(err) || token.isCancellationRequested) {
 			throw err;
@@ -368,7 +374,7 @@ async function completionDecision(
 		});
 		return {
 			...explained,
-			request: buildCompletionRequest(task, assistantText),
+			request: buildCompletionRequest(task, assistantText, toolCalls),
 		};
 	} finally {
 		linked.end();

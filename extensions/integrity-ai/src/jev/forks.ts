@@ -7,6 +7,7 @@ import * as vscode from 'vscode';
 import {
 	type ApprovalVerdict,
 	type CompletionDecision,
+	type CompletionToolCall,
 	type JevThresholds,
 	type PreparedJevCall,
 	type ProposedToolCall,
@@ -164,15 +165,17 @@ export interface CompletionCheck {
 
 /**
  * Decide whether a text-only assistant reply may end the turn.
+ * `toolCalls` are the invocations already made on this turn; they go into the state with the task and reply.
  * `request` is the state and questions that were sent. `text` is the raw answer and that decision.
  */
 export async function judgeCompletion(
 	task: string,
 	assistantText: string,
+	toolCalls: readonly CompletionToolCall[],
 	priorUnavailable: boolean,
 	signal?: AbortSignal,
 ): Promise<CompletionCheck> {
-	const request = buildCompletionRequest(task, assistantText);
+	const request = buildCompletionRequest(task, assistantText, toolCalls);
 	const { config, thresholds } = readJevRuntime();
 	const answers = await evaluateOrUnavailable(config, request, signal);
 	const answer = answers?.[COMPLETION_QUESTION];
