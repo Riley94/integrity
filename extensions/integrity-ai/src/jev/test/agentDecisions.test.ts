@@ -29,6 +29,7 @@ import {
 	isMutatingTool,
 	offeredToolChoices,
 	rejectionForUnselectedTool,
+	TOOL_REPLY_CHOICE,
 	retrievalQuestionId,
 	toolSurfaceQuestionId,
 } from '../agentDecisions';
@@ -135,6 +136,58 @@ describe('interpretToolSurface', () => {
 			answers: {},
 		}), []);
 	});
+
+	it('answers in text when reply is at least as high as every tool', () => {
+		assert.deepEqual(interpretToolSurface({
+			...base,
+			unavailable: false,
+			answers: {
+				[TOOL_REPLY_CHOICE]: noul(0.8),
+				integrity_read_file: noul(0.7),
+				integrity_apply_patch: noul(0.2),
+				run_in_terminal: noul(0.8),
+			},
+		}), []);
+	});
+
+	it('answers in text when reply equals the threshold and no tool is higher', () => {
+		assert.deepEqual(interpretToolSurface({
+			...base,
+			unavailable: false,
+			answers: {
+				[TOOL_REPLY_CHOICE]: noul(0.6),
+				integrity_read_file: noul(0.6),
+				integrity_apply_patch: noul(0.1),
+				run_in_terminal: noul(0),
+			},
+		}), []);
+	});
+
+	it('keeps passing tools when one outranks reply', () => {
+		assert.deepEqual(interpretToolSurface({
+			...base,
+			unavailable: false,
+			answers: {
+				[TOOL_REPLY_CHOICE]: noul(0.7),
+				integrity_read_file: noul(0.65),
+				integrity_apply_patch: noul(0.91),
+				run_in_terminal: noul(0.4),
+			},
+		}), ['integrity_read_file', 'integrity_apply_patch']);
+	});
+
+	it('keeps a passing tool when reply is below the threshold', () => {
+		assert.deepEqual(interpretToolSurface({
+			...base,
+			unavailable: false,
+			answers: {
+				[TOOL_REPLY_CHOICE]: noul(0.59),
+				integrity_read_file: noul(0.1),
+				integrity_apply_patch: noul(0.8),
+				run_in_terminal: noul(0.2),
+			},
+		}), ['integrity_apply_patch']);
+	});
 });
 
 describe('explainToolSurface', () => {
@@ -156,7 +209,8 @@ describe('explainToolSurface', () => {
 		assert.deepEqual(trace.toolNames, ['integrity_read_file', 'integrity_apply_patch']);
 		assert.equal(trace.text, [
 			'Jev tools',
-			'offered: integrity_read_file, integrity_apply_patch, run_in_terminal',
+			'offered: reply, integrity_read_file, integrity_apply_patch, run_in_terminal',
+			'reply: missing',
 			'integrity_read_file: 0.82',
 			'integrity_apply_patch: 0.71',
 			'run_in_terminal: 0.08',
@@ -165,6 +219,26 @@ describe('explainToolSurface', () => {
 			'tools: integrity_read_file, integrity_apply_patch',
 			'withheld: run_in_terminal',
 		].join('\n'));
+	});
+
+	it('answers in text when reply outranks every tool', () => {
+		const trace = explainToolSurface({
+			unavailable: false,
+			offered,
+			toolSurfaceConfidence: 0.6,
+			toolNames: [...names, TOOL_REPLY_CHOICE],
+			answers: {
+				[TOOL_REPLY_CHOICE]: noul(0.86),
+				integrity_read_file: noul(0.7),
+				integrity_apply_patch: noul(0.4),
+				run_in_terminal: noul(0.86),
+			},
+		});
+		assert.deepEqual(trace.toolNames, []);
+		assert.match(trace.text, /reply: 0.86/);
+		assert.match(trace.text, /decision: text only \(Jev chose reply\)/);
+		assert.match(trace.text, /tools: none/);
+		assert.match(trace.text, /withheld: integrity_read_file, integrity_apply_patch, run_in_terminal/);
 	});
 
 	it('stays text-only when every noul is below the threshold', () => {
@@ -250,6 +324,8 @@ describe('formatJevDebug', () => {
 		assert.match(text, /"task": "fix the test"/);
 		assert.match(text, /"mode": "agent"/);
 		assert.match(text, /questions:\n\{/);
+		assert.match(text, /"reply"/);
+		assert.match(text, /answer in text/);
 		assert.match(text, /"integrity_read_file"/);
 		assert.match(text, /"integrity_apply_patch"/);
 		assert.match(text, /"run_in_terminal"/);
@@ -291,10 +367,17 @@ describe('rejectionForUnselectedTool', () => {
 });
 
 describe('buildToolSurfaceRequest', () => {
-	it('asks one noul per tool in a single request', () => {
+	it('asks one noul for reply and one noul per tool in a single request', () => {
 		const request = buildToolSurfaceRequest('fix the bug', 'agent', surfaceTools);
 		assert.ok(request);
-		assert.deepEqual(Object.keys(request.questions), surfaceTools.map(tool => tool.name));
+		assert.deepEqual(Object.keys(request.questions), [TOOL_REPLY_CHOICE, ...surfaceTools.map(tool => tool.name)]);
+		const reply = request.questions[toolSurfaceQuestionId(TOOL_REPLY_CHOICE)];
+		assert.equal(reply.type, 'noul');
+		if (reply.type === 'noul') {
+			assert.match(reply.instructions, /answer in text/);
+			assert.equal(reply.criteria?.true, 'The user can be answered in text. No tool is needed.');
+			assert.equal(reply.criteria?.false, 'A tool is needed to complete the task');
+		}
 		for (const tool of surfaceTools) {
 			const question = request.questions[toolSurfaceQuestionId(tool.name)];
 			assert.equal(question.type, 'noul');
@@ -317,6 +400,7 @@ describe('buildToolSurfaceRequest', () => {
 
 	it('drops blank and duplicate tool names', () => {
 		assert.deepEqual(offeredToolChoices(['', 'integrity_read_file', 'integrity_read_file', 'integrity_apply_patch']), [
+			TOOL_REPLY_CHOICE,
 			'integrity_read_file',
 			'integrity_apply_patch',
 		]);
@@ -326,10 +410,27 @@ describe('buildToolSurfaceRequest', () => {
 			{ name: 'integrity_read_file', description: 'second' },
 		]);
 		assert.ok(request);
-		assert.deepEqual(Object.keys(request.questions), ['integrity_read_file']);
+		assert.deepEqual(Object.keys(request.questions), [TOOL_REPLY_CHOICE, 'integrity_read_file']);
 		const state = request.state as { tools: { description: string }[] };
 		assert.equal(state.tools.length, 1);
 		assert.equal(state.tools[0].description, 'first');
+	});
+
+	it('does not treat a tool named reply as a real tool', () => {
+		assert.deepEqual(offeredToolChoices(['reply']), []);
+		assert.equal(buildToolSurfaceRequest('hello', 'agent', [{ name: 'reply', description: 'nope' }]), undefined);
+		assert.deepEqual(offeredToolChoices(['reply', 'integrity_read_file', 'reply']), [
+			TOOL_REPLY_CHOICE,
+			'integrity_read_file',
+		]);
+		const request = buildToolSurfaceRequest('how do I run this?', 'agent', [
+			{ name: 'reply', description: 'not a tool' },
+			{ name: 'vscode_askQuestions', description: 'Ask the user a question' },
+		]);
+		assert.ok(request);
+		assert.deepEqual(Object.keys(request.questions), [TOOL_REPLY_CHOICE, 'vscode_askQuestions']);
+		const state = request.state as { tools: { name: string }[] };
+		assert.deepEqual(state.tools.map(tool => tool.name), ['vscode_askQuestions']);
 	});
 
 	it('clips long tool descriptions', () => {

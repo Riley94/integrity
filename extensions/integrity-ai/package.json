@@ -128,7 +128,7 @@
           "default": 0.5,
           "minimum": 0,
           "maximum": 1,
-          "description": "Noul at or above this value keeps a tool. Every tool that passes may be called."
+          "description": "Noul at or above this value keeps a tool. Reply at or above this value, when it is at least as high as every tool, answers in text."
         },
         "integrity.ai.jev.debug": {
           "type": "boolean",

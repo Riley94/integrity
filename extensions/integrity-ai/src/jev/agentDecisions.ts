@@ -14,6 +14,9 @@ export const COMPLETION_UNVERIFIED_MESSAGE =
 export const COMPLETION_BLOCKED_MESSAGE =
 	'This turn cannot be finished until Jev answers. Check integrity.ai.jev.apiKey and integrity.ai.jev.baseUrl, then try again.';
 
+/** Choice id for a text-only turn. Not a real tool name. */
+export const TOOL_REPLY_CHOICE = 'reply';
+
 export interface JevThresholds {
 	approvalThreshold: number;
 	retrievalThreshold: number;
@@ -92,24 +95,29 @@ export function toolSurfaceQuestionId(toolName: string): string {
 }
 
 /**
- * Tool names Jev may score. Blank names and duplicates are dropped.
- * An empty catalog offers nothing.
+ * Options Jev may score: text-only, then each real tool.
+ * Blank names and duplicates are dropped. An empty catalog offers nothing.
+ * A tool literally named {@link TOOL_REPLY_CHOICE} is omitted so it cannot collide with text-only.
  */
 export function offeredToolChoices(toolNames: readonly string[]): string[] {
 	const seen = new Set<string>();
 	const offered: string[] = [];
 	for (const name of toolNames) {
-		if (!name || seen.has(name)) {
+		if (!name || name === TOOL_REPLY_CHOICE || seen.has(name)) {
 			continue;
 		}
 		seen.add(name);
 		offered.push(name);
 	}
-	return offered;
+	if (!offered.length) {
+		return [];
+	}
+	return [TOOL_REPLY_CHOICE, ...offered];
 }
 
 /**
- * One Noul per offered tool, in a single request.
+ * One Noul for a text answer, plus one Noul per offered tool, in a single request.
+ * Reply stays available so a question can be answered without calling a tool.
  * Returns undefined when there is no tool to score.
  */
 export function buildToolSurfaceRequest(
@@ -123,13 +131,26 @@ export function buildToolSurfaceRequest(
 	}
 	const byName = new Map<string, ToolSurfaceTool>();
 	for (const tool of tools) {
-		if (!byName.has(tool.name)) {
-			byName.set(tool.name, tool);
+		if (tool.name === TOOL_REPLY_CHOICE || byName.has(tool.name)) {
+			continue;
 		}
+		byName.set(tool.name, tool);
 	}
-	const questions: Record<string, JevQuestion> = {};
+	const questions: Record<string, JevQuestion> = {
+		[toolSurfaceQuestionId(TOOL_REPLY_CHOICE)]: {
+			type: 'noul',
+			instructions: 'Should the writer answer in text without calling a tool?',
+			criteria: {
+				true: 'The user can be answered in text. No tool is needed.',
+				false: 'A tool is needed to complete the task',
+			},
+		},
+	};
 	const listed: { name: string; description: string }[] = [];
 	for (const name of offered) {
+		if (name === TOOL_REPLY_CHOICE) {
+			continue;
+		}
 		const tool = byName.get(name);
 		if (!tool) {
 			continue;
@@ -159,6 +180,7 @@ export function buildToolSurfaceRequest(
 
 /**
  * Every offered tool whose Noul is at or above the threshold.
+ * Reply is not a tool. When its Noul clears the threshold and is at least as high as every tool, the turn is text-only.
  * A missing answer, a non-Noul, or a score under the threshold withholds that tool.
  * An empty list is a text-only turn.
  */
@@ -171,8 +193,14 @@ export function interpretToolSurface(args: {
 	if (args.unavailable || !args.answers) {
 		return [];
 	}
+	if (replyOutranksTools(args.answers, args.offered, args.toolSurfaceConfidence)) {
+		return [];
+	}
 	const selected: string[] = [];
 	for (const name of args.offered) {
+		if (name === TOOL_REPLY_CHOICE) {
+			continue;
+		}
 		const answer = args.answers[toolSurfaceQuestionId(name)];
 		if (answer?.type === 'noul' && answer.noul >= args.toolSurfaceConfidence) {
 			selected.push(name);
@@ -218,7 +246,7 @@ export function explainToolSurface(args: {
 	lines.push(`decision: ${toolSurfaceDecision(args, selected)}`);
 	lines.push(`tools: ${formatNameList(selected)}`);
 	const selectedSet = new Set(selected);
-	const withheld = args.toolNames.filter(name => !selectedSet.has(name));
+	const withheld = args.toolNames.filter(name => name !== TOOL_REPLY_CHOICE && !selectedSet.has(name));
 	lines.push(`withheld: ${formatNameList(withheld)}`);
 	return { toolNames: selected, text: lines.join('\n') };
 }
@@ -251,21 +279,52 @@ function debugJson(value: unknown): string {
 }
 
 /**
- * Human-readable host decision. Every tool at or above the threshold is kept.
- * No passing tool leaves the writer with text only.
+ * Human-readable host decision.
+ * Reply wins when it clears the threshold and no tool scores higher, so a question can be answered in text.
+ * Otherwise every tool at or above the threshold is kept.
  */
 function toolSurfaceDecision(args: {
 	answers: Record<string, JevAnswer> | undefined;
 	unavailable: boolean;
+	offered: readonly string[];
 	toolSurfaceConfidence: number;
 }, selected: readonly string[]): string {
 	if (args.unavailable || !args.answers) {
 		return 'text only (Jev did not answer)';
 	}
+	if (replyOutranksTools(args.answers, args.offered, args.toolSurfaceConfidence)) {
+		return 'text only (Jev chose reply)';
+	}
 	if (!selected.length) {
 		return `text only (no tool reached ${formatScore(args.toolSurfaceConfidence)})`;
 	}
 	return `selected ${selected.join(', ')}`;
+}
+
+/**
+ * True when a text answer is at least as strong as every tool and clears the threshold.
+ * A missing reply does not block tools that already passed.
+ */
+function replyOutranksTools(
+	answers: Record<string, JevAnswer>,
+	offered: readonly string[],
+	toolSurfaceConfidence: number,
+): boolean {
+	const reply = answers[toolSurfaceQuestionId(TOOL_REPLY_CHOICE)];
+	if (reply?.type !== 'noul' || reply.noul < toolSurfaceConfidence) {
+		return false;
+	}
+	let bestTool = Number.NEGATIVE_INFINITY;
+	for (const name of offered) {
+		if (name === TOOL_REPLY_CHOICE) {
+			continue;
+		}
+		const answer = answers[toolSurfaceQuestionId(name)];
+		if (answer?.type === 'noul') {
+			bestTool = Math.max(bestTool, answer.noul);
+		}
+	}
+	return reply.noul >= bestTool;
 }
 
 function formatToolNoul(answer: JevAnswer | undefined): string {

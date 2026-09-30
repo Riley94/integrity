@@ -66,6 +66,7 @@ export function readJevRuntime(): JevRuntime {
 /**
  * The tools for this turn. An empty list is text only.
  * A missing key or a failed call withholds every tool. A Noul under the threshold withholds that tool.
+ * Reply at or above the threshold, and at least as high as every tool, withholds every tool.
  * `text` is the raw answer and that decision. `request` is the state and questions that were sent.
  */
 export async function routeToolSurface(
