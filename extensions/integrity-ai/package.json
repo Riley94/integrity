@@ -125,10 +125,10 @@
         },
         "integrity.ai.jev.toolSurfaceConfidence": {
           "type": "number",
-          "default": 0.6,
+          "default": 0.5,
           "minimum": 0,
           "maximum": 1,
-          "description": "Minimum Choice confidence required for Jev to select the one tool the writer may call"
+          "description": "Choice confidence must be greater than this value for Jev to select the one tool the writer may call"
         },
         "integrity.ai.jev.debug": {
           "type": "boolean",

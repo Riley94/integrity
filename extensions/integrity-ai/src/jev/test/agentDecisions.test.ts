@@ -71,7 +71,7 @@ describe('interpretToolSurface', () => {
 			...base,
 			unavailable: false,
 			answers: {
-				[TOOL_SURFACE_QUESTION]: choice('integrity_read_file', 0.6),
+				[TOOL_SURFACE_QUESTION]: choice('integrity_read_file', 0.61),
 				[TOOL_SURFACE_NONE_QUESTION]: noul(0.59),
 			},
 		}), 'integrity_read_file');
@@ -83,6 +83,17 @@ describe('interpretToolSurface', () => {
 			unavailable: false,
 			answers: {
 				[TOOL_SURFACE_QUESTION]: choice('reply', 0.9),
+				[TOOL_SURFACE_NONE_QUESTION]: noul(0.1),
+			},
+		}), undefined);
+	});
+
+	it('returns no tool when confidence is not above the threshold', () => {
+		assert.equal(interpretToolSurface({
+			...base,
+			unavailable: false,
+			answers: {
+				[TOOL_SURFACE_QUESTION]: choice('integrity_read_file', 0.6),
 				[TOOL_SURFACE_NONE_QUESTION]: noul(0.1),
 			},
 		}), undefined);
@@ -196,7 +207,7 @@ describe('explainToolSurface', () => {
 		});
 		assert.equal(trace.toolName, undefined);
 		assert.match(trace.text, /choice: integrity_read_file/);
-		assert.match(trace.text, /decision: text only \(confidence 0.59 is below 0.60\)/);
+		assert.match(trace.text, /decision: text only \(confidence 0.59 is not above 0.60\)/);
 		assert.match(trace.text, /tool: none/);
 	});
 
@@ -320,9 +331,10 @@ describe('formatJevDebug', () => {
 	it('is off unless the development setting is enabled', () => {
 		const pkgPath = join(dirname(fileURLToPath(import.meta.url)), '../../../package.json');
 		const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as {
-			contributes: { configuration: { properties: Record<string, { default?: boolean }> } };
+			contributes: { configuration: { properties: Record<string, { default?: boolean | number }> } };
 		};
 		assert.equal(pkg.contributes.configuration.properties['integrity.ai.jev.debug'].default, false);
+		assert.equal(pkg.contributes.configuration.properties['integrity.ai.jev.toolSurfaceConfidence'].default, 0.5);
 	});
 });
 

@@ -55,7 +55,7 @@ export function readJevRuntime(): JevRuntime {
 			approvalThreshold: unit(cfg.get<number>('jev.approvalThreshold', 0.7), 0.7),
 			retrievalThreshold: unit(cfg.get<number>('jev.retrievalThreshold', 0.5), 0.5),
 			completionConfidence: unit(cfg.get<number>('jev.completionConfidence', 0.6), 0.6),
-			toolSurfaceConfidence: unit(cfg.get<number>('jev.toolSurfaceConfidence', 0.6), 0.6),
+			toolSurfaceConfidence: unit(cfg.get<number>('jev.toolSurfaceConfidence', 0.5), 0.5),
 		},
 		requireEditApproval: cfg.get<boolean>('agent.requireEditApproval', true),
 		requireTerminalApproval: cfg.get<boolean>('agent.requireTerminalApproval', true),
