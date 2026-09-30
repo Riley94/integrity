@@ -109,13 +109,6 @@
           "maximum": 1,
           "description": "Noul at or above this value means a mutating tool call needs human approval"
         },
-        "integrity.ai.jev.routingConfidence": {
-          "type": "number",
-          "default": 0.6,
-          "minimum": 0,
-          "maximum": 1,
-          "description": "Minimum Choice confidence required to override the selected writer model"
-        },
         "integrity.ai.jev.retrievalThreshold": {
           "type": "number",
           "default": 0.5,

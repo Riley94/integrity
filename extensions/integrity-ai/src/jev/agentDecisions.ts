@@ -6,8 +6,6 @@
 import { READ_ONLY_TOOLS } from '../agent/toolNames';
 import type { ChoiceQuestion, JevAnswer, JevQuestion, JevState, NoulQuestion } from './jevClient';
 
-export const ROUTING_MODEL_QUESTION = 'model';
-export const ROUTING_NONE_QUESTION = 'none_suitable';
 export const TOOL_SURFACE_QUESTION = 'surface';
 export const TOOL_SURFACE_NONE_QUESTION = 'none_suitable';
 export const COMPLETION_QUESTION = 'status';
@@ -20,7 +18,6 @@ export const COMPLETION_BLOCKED_MESSAGE =
 
 export interface JevThresholds {
 	approvalThreshold: number;
-	routingConfidence: number;
 	retrievalThreshold: number;
 	completionConfidence: number;
 	toolSurfaceConfidence: number;
@@ -32,13 +29,6 @@ export const TOOL_REPLY_CHOICE = 'reply';
 export interface ToolSurfaceTool {
 	name: string;
 	description: string;
-}
-
-export interface RoutingCandidate {
-	id: string;
-	name: string;
-	family: string;
-	maxInputTokens: number;
 }
 
 export interface RetrievalHit {
@@ -93,86 +83,6 @@ export function retrievalQuestionId(index: number): string {
 
 export function approvalQuestionId(callId: string, index: number): string {
 	return `${index}:${callId}`;
-}
-
-/**
- * Choice over allowlisted writer models, plus a Noul for "none of these".
- * Returns undefined when there is no candidate to choose.
- */
-export function buildRoutingRequest(
-	prompt: string,
-	mode: string,
-	currentModelId: string,
-	candidates: readonly RoutingCandidate[],
-): PreparedJevCall | undefined {
-	if (!candidates.length) {
-		return undefined;
-	}
-	const criteria: Record<string, string> = {};
-	for (const candidate of candidates) {
-		criteria[candidate.id] = `${candidate.name} (${candidate.family}, max input ${candidate.maxInputTokens} tokens)`;
-	}
-	const choice: ChoiceQuestion = {
-		type: 'choice',
-		instructions: 'Which candidate model should write this coding turn? Prefer quality, then context capacity.',
-		criteria,
-	};
-	const noneSuitable: NoulQuestion = {
-		type: 'noul',
-		instructions: 'Is none of the candidate models suitable for this task?',
-		criteria: {
-			true: 'No candidate should write this turn',
-			false: 'At least one candidate is suitable',
-		},
-	};
-	return {
-		state: {
-			task: clip(prompt, 8000),
-			mode,
-			currentModelId,
-			candidates: candidates.map(candidate => ({
-				id: candidate.id,
-				name: candidate.name,
-				family: candidate.family,
-				maxInputTokens: candidate.maxInputTokens,
-				current: candidate.id === currentModelId,
-			})),
-		},
-		questions: {
-			[ROUTING_MODEL_QUESTION]: choice,
-			[ROUTING_NONE_QUESTION]: noneSuitable,
-		},
-	};
-}
-
-/**
- * Switch only when Jev is confident, the chosen id is allowlisted, and "none suitable" is below the threshold.
- * Any failure keeps the user-selected model.
- */
-export function interpretRouting(args: {
-	answers: Record<string, JevAnswer> | undefined;
-	unavailable: boolean;
-	candidateIds: readonly string[];
-	routingConfidence: number;
-}): string | undefined {
-	if (args.unavailable || !args.answers) {
-		return undefined;
-	}
-	const choice = args.answers[ROUTING_MODEL_QUESTION];
-	const none = args.answers[ROUTING_NONE_QUESTION];
-	if (!choice || choice.type !== 'choice' || !none || none.type !== 'noul') {
-		return undefined;
-	}
-	if (choice.confidence < args.routingConfidence) {
-		return undefined;
-	}
-	if (none.noul >= args.routingConfidence) {
-		return undefined;
-	}
-	if (!args.candidateIds.includes(choice.choice)) {
-		return undefined;
-	}
-	return choice.choice;
 }
 
 /**

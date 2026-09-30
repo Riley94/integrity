@@ -14,7 +14,6 @@ import {
 	TOOL_SURFACE_QUESTION,
 	buildApprovalRequest,
 	buildRetrievalRequest,
-	buildRoutingRequest,
 	buildToolSurfaceRequest,
 	describeSkippedToolSurface,
 	explainToolSurface,
@@ -22,7 +21,6 @@ import {
 	interpretApproval,
 	interpretCompletion,
 	interpretRetrieval,
-	interpretRouting,
 	interpretToolSurface,
 	isMutatingTool,
 	offeredToolChoices,
@@ -30,11 +28,6 @@ import {
 	retrievalQuestionId,
 } from '../agentDecisions';
 import type { JevAnswer } from '../jevClient';
-
-const candidates = [
-	{ id: 'ollama:qwen2.5-coder:14b', name: 'qwen 14b', family: 'ollama', maxInputTokens: 32768 },
-	{ id: 'anthropic:claude', name: 'claude', family: 'anthropic', maxInputTokens: 200000 },
-];
 
 const hits = [
 	{ path: 'src/a.ts', content: 'alpha', startLine: 1, endLine: 4 },
@@ -53,70 +46,6 @@ function choice(choiceId: string, confidence: number): JevAnswer {
 function noul(value: number): JevAnswer {
 	return { type: 'noul', noul: value };
 }
-
-describe('interpretRouting', () => {
-	const base = {
-		candidateIds: candidates.map(candidate => candidate.id),
-		routingConfidence: 0.6,
-	};
-
-	it('switches when the choice is confident, allowlisted, and none-suitable is low', () => {
-		const selected = interpretRouting({
-			...base,
-			unavailable: false,
-			answers: {
-				model: choice('anthropic:claude', 0.6),
-				none_suitable: noul(0.59),
-			},
-		});
-		assert.equal(selected, 'anthropic:claude');
-	});
-
-	it('keeps the user model on low confidence', () => {
-		assert.equal(interpretRouting({
-			...base,
-			unavailable: false,
-			answers: {
-				model: choice('anthropic:claude', 0.59),
-				none_suitable: noul(0.1),
-			},
-		}), undefined);
-	});
-
-	it('keeps the user model when none of the candidates are suitable', () => {
-		assert.equal(interpretRouting({
-			...base,
-			unavailable: false,
-			answers: {
-				model: choice('anthropic:claude', 0.9),
-				none_suitable: noul(0.6),
-			},
-		}), undefined);
-	});
-
-	it('keeps the user model when the chosen id is not allowlisted', () => {
-		assert.equal(interpretRouting({
-			...base,
-			unavailable: false,
-			answers: {
-				model: choice('openai-compat:other', 0.99),
-				none_suitable: noul(0),
-			},
-		}), undefined);
-	});
-
-	it('keeps the user model when Jev is unavailable', () => {
-		assert.equal(interpretRouting({
-			...base,
-			unavailable: true,
-			answers: undefined,
-		}), undefined);
-	});
-
-	it('does not build a request when there are no candidates', () => {
-		assert.equal(buildRoutingRequest('fix the bug', 'agent', 'ollama:qwen', []), undefined);
-	});
-});
 
 const surfaceTools = [
 	{ name: 'integrity_read_file', description: 'Read a file' },

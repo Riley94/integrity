@@ -10,7 +10,6 @@ import { loadAgentRules, type CodebaseSearchIndex } from './lmTools';
 import { extractPathFromInput } from './pathPolicy';
 import { inferModeKind, IntegrityToolName, isToolAllowedInMode, type AgentModeKind } from './toolNames';
 import { parseModelId } from '../providers/modelId';
-import { INTEGRITY_LM_VENDOR } from '../providers/languageModelProvider';
 import { ensureOllamaModelReady, isOllamaModelReady, ollamaModelNotReadyMessage } from '../ollama/ensureOllamaModel';
 import {
 	COMPLETION_BLOCKED_MESSAGE,
@@ -32,7 +31,6 @@ import {
 	judgeMutatingCalls,
 	rankChunksForContext,
 	routeToolSurface,
-	routeWriterModel,
 } from '../jev/forks';
 import { isAbortError } from '../jev/jevClient';
 
@@ -133,27 +131,14 @@ export async function runChatAgentLoop(
 	const mode = inferModeKind(typeof modeName === 'string' ? modeName : 'agent');
 	const agentRules = await loadAgentRules();
 
-	const selected = request.model;
-	if (!selected) {
+	// The writer is the model the user selected. Jev does not switch it.
+	const model = request.model;
+	if (!model) {
 		stream.markdown('No language model is available. Start Ollama from the Command Palette (**Integrity: Start Ollama**) or configure a BYOK provider in Integrity AI settings.');
 		return {};
 	}
-
-	let model: vscode.LanguageModelChat;
-	try {
-		stream.progress('Consulting Jev…');
-		model = await selectWriterModel(request.prompt, mode, selected, token);
-	} catch (err) {
-		if (isAbortError(err) || token.isCancellationRequested) {
-			return {};
-		}
-		model = selected;
-	}
 	if (token.isCancellationRequested) {
 		return {};
-	}
-	if (model.id !== selected.id) {
-		stream.progress(`Using ${model.name}…`);
 	}
 
 	const parsed = parseModelId(model.id);
@@ -317,44 +302,6 @@ export async function runChatAgentLoop(
 
 	stream.markdown(`\n\n_Agent reached max steps (${maxSteps})._`);
 	return {};
-}
-
-/**
- * Pick a writer once per turn. A missing Jev answer keeps the model the user selected.
- */
-async function selectWriterModel(
-	prompt: string,
-	mode: AgentModeKind,
-	selected: vscode.LanguageModelChat,
-	token: vscode.CancellationToken,
-): Promise<vscode.LanguageModelChat> {
-	let candidates: vscode.LanguageModelChat[] = [];
-	try {
-		candidates = await vscode.lm.selectChatModels({ vendor: INTEGRITY_LM_VENDOR });
-	} catch {
-		return selected;
-	}
-	const linked = beginCancellation(token);
-	try {
-		const switchTo = await routeWriterModel(
-			prompt,
-			mode,
-			selected.id,
-			candidates.map(candidate => ({
-				id: candidate.id,
-				name: candidate.name,
-				family: candidate.family,
-				maxInputTokens: candidate.maxInputTokens,
-			})),
-			linked.signal,
-		);
-		if (!switchTo) {
-			return selected;
-		}
-		return candidates.find(candidate => candidate.id === switchTo) ?? selected;
-	} finally {
-		linked.end();
-	}
 }
 
 /**

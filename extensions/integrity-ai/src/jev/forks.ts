@@ -11,20 +11,17 @@ import {
 	type PreparedJevCall,
 	type ProposedToolCall,
 	type RetrievalHit,
-	type RoutingCandidate,
 	type ToolSurfaceTool,
 	COMPLETION_QUESTION,
 	approvalQuestionId,
 	buildApprovalRequest,
 	buildCompletionRequest,
 	buildRetrievalRequest,
-	buildRoutingRequest,
 	buildToolSurfaceRequest,
 	explainToolSurface,
 	interpretApproval,
 	interpretCompletion,
 	interpretRetrieval,
-	interpretRouting,
 	offeredToolChoices,
 	type ToolSurfaceTrace,
 } from './agentDecisions';
@@ -56,7 +53,6 @@ export function readJevRuntime(): JevRuntime {
 		},
 		thresholds: {
 			approvalThreshold: unit(cfg.get<number>('jev.approvalThreshold', 0.7), 0.7),
-			routingConfidence: unit(cfg.get<number>('jev.routingConfidence', 0.6), 0.6),
 			retrievalThreshold: unit(cfg.get<number>('jev.retrievalThreshold', 0.5), 0.5),
 			completionConfidence: unit(cfg.get<number>('jev.completionConfidence', 0.6), 0.6),
 			toolSurfaceConfidence: unit(cfg.get<number>('jev.toolSurfaceConfidence', 0.6), 0.6),
@@ -64,31 +60,6 @@ export function readJevRuntime(): JevRuntime {
 		requireEditApproval: cfg.get<boolean>('agent.requireEditApproval', true),
 		requireTerminalApproval: cfg.get<boolean>('agent.requireTerminalApproval', true),
 	};
-}
-
-/**
- * Model id to switch to, or undefined to keep the user-selected model.
- * A missing key or failed call keeps the user-selected model.
- */
-export async function routeWriterModel(
-	prompt: string,
-	mode: string,
-	currentModelId: string,
-	candidates: readonly RoutingCandidate[],
-	signal?: AbortSignal,
-): Promise<string | undefined> {
-	const request = buildRoutingRequest(prompt, mode, currentModelId, candidates);
-	if (!request) {
-		return undefined;
-	}
-	const { config, thresholds } = readJevRuntime();
-	const answers = await evaluateOrUnavailable(config, request, signal);
-	return interpretRouting({
-		answers: answers ?? undefined,
-		unavailable: answers === null,
-		candidateIds: candidates.map(candidate => candidate.id),
-		routingConfidence: thresholds.routingConfidence,
-	});
 }
 
 /**
