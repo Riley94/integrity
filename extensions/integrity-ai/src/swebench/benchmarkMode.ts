@@ -96,8 +96,13 @@ export function benchmarkChatOpenArgs(prompt: string, modelId: string): Benchmar
 }
 
 /**
- * Status written when the chat command returns. A missing file means the runner timed out.
+ * Whether this window should finish the embedding index before it is ready for chat.
+ * The smoke run skips that index: embedding the task repo blocks activation, so the
+ * chat turn never starts. Grep and read still work without it.
  */
+export function shouldIndexBeforeReady(benchmark: boolean): boolean {
+	return !benchmark;
+}
 export function benchmarkStatus(outcome: BenchmarkStatus['outcome'], message?: string): BenchmarkStatus {
 	if (message) {
 		return { outcome, message };

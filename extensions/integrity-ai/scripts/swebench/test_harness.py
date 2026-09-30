@@ -15,8 +15,10 @@ from swebench.harness import (
     prediction_row,
     prompt_is_outside_repo,
     select_smoke_instance_ids,
+    smoke_profile_settings,
     task_layout,
     upsert_jsonl,
+    window_argv,
 )
 
 
@@ -91,6 +93,17 @@ class InstanceSelectionTest(unittest.TestCase):
             path.write_text(json.dumps({'instance_ids': ['a', 'a']}), encoding='utf-8')
             with self.assertRaises(ValueError):
                 load_instance_ids(path)
+
+
+class LaunchTest(unittest.TestCase):
+    def test_skips_the_first_launch_sign_in_overlay(self) -> None:
+        settings = smoke_profile_settings('secret', 'ollama:qwen2.5-coder:14b')
+        self.assertFalse(settings['workbench.welcomePage.experimentalOnboarding'])
+        self.assertEqual(settings['workbench.startupEditor'], 'none')
+        command = window_argv(Path('/repo'), Path('/task'), Path('/profile'))
+        self.assertIn('--skip-welcome', command)
+        self.assertEqual(command[0], '/repo')
+        self.assertEqual(command[-1], '/task')
 
 
 class JsonlTest(unittest.TestCase):

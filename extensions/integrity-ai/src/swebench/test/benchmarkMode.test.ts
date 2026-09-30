@@ -14,6 +14,7 @@ import {
 	benchmarkStatus,
 	isSweBenchBenchmark,
 	shouldDeclineOllamaInstall,
+	shouldIndexBeforeReady,
 	shouldRunOnboarding,
 } from '../benchmarkMode';
 
@@ -44,6 +45,13 @@ describe('approvalFloors', () => {
 			requireEditApproval: true,
 			requireTerminalApproval: false,
 		});
+	});
+});
+
+describe('shouldIndexBeforeReady', () => {
+	it('skips the embedding index during a smoke run so the chat turn can start', () => {
+		assert.equal(shouldIndexBeforeReady(true), false);
+		assert.equal(shouldIndexBeforeReady(false), true);
 	});
 });
 

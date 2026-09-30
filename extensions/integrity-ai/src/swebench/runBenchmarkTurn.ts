@@ -17,7 +17,7 @@ import {
 
 /**
  * Submit the smoke-run problem statement in Agent mode, record the outcome, and quit.
- * No-op unless {@link isSweBenchBenchmark} is set. Call this after the codebase index is ready.
+ * No-op unless {@link isSweBenchBenchmark} is set.
  * The runner kills the window if this never writes the status file.
  */
 export async function runBenchmarkTurn(): Promise<void> {
@@ -37,6 +37,7 @@ export async function runBenchmarkTurn(): Promise<void> {
 		if (!prompt.trim()) {
 			throw new Error(`Benchmark prompt file is empty: ${promptFile}`);
 		}
+		console.log('[integrity-ai] SWE-bench turn starting');
 		await vscode.commands.executeCommand(
 			'workbench.action.chat.open',
 			benchmarkChatOpenArgs(prompt, modelId),
@@ -44,12 +45,27 @@ export async function runBenchmarkTurn(): Promise<void> {
 		await writeBenchmarkStatus(statusFile, benchmarkStatus('completed'));
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
+		console.log(`[integrity-ai] SWE-bench turn failed: ${message}`);
 		if (statusFile) {
 			await writeBenchmarkStatus(statusFile, benchmarkStatus('error', message));
 		}
 	} finally {
 		await vscode.commands.executeCommand('workbench.action.quit');
 	}
+}
+
+/**
+ * Start the smoke turn after this extension's activate() returns.
+ * Awaiting the chat command inside activate() never delivers it: the participant
+ * handler cannot run until activation finishes.
+ */
+export function scheduleBenchmarkTurn(): void {
+	if (!isSweBenchBenchmark()) {
+		return;
+	}
+	setTimeout(() => {
+		void runBenchmarkTurn();
+	}, 0);
 }
 
 async function writeBenchmarkStatus(statusFile: string, status: ReturnType<typeof benchmarkStatus>): Promise<void> {

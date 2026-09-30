@@ -16,7 +16,8 @@ import { InlineCompletionProvider } from './completion/inlineCompletionProvider'
 import { runOnboarding, setupRecommendedModels, startOllamaFromIde } from './onboarding/setupModels';
 import { registerOllamaModelInstallPrompt } from './ollama/ensureOllamaModel';
 import { registerAgentDiffProvider } from './agent/diffProvider';
-import { runBenchmarkTurn } from './swebench/runBenchmarkTurn';
+import { scheduleBenchmarkTurn } from './swebench/runBenchmarkTurn';
+import { isSweBenchBenchmark, shouldIndexBeforeReady } from './swebench/benchmarkMode';
 
 let chatProvider: ChatViewProvider;
 
@@ -58,9 +59,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		vscode.commands.registerCommand('integrity.ai.insertCodeBlock', (code: string) => insertCode(code)),
 	);
 
-	await index.initialize(context);
+	if (shouldIndexBeforeReady(isSweBenchBenchmark())) {
+		await index.initialize(context);
+	}
 	await runOnboarding(context);
-	await runBenchmarkTurn();
+	scheduleBenchmarkTurn();
 
 	const output = vscode.window.createOutputChannel('Integrity AI');
 	context.subscriptions.push(output);

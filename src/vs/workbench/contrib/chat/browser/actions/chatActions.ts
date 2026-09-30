@@ -463,31 +463,32 @@ abstract class OpenChatGlobalAction extends Action2 {
 			const response = await resp;
 			if (response) {
 				const autoReplyEnabled = configurationService.getValue<boolean>(ChatConfiguration.AutoReply);
-				await new Promise<void>(resolve => {
-					const d = response.onDidChange(async () => {
-						if (response.isComplete) {
-							d.dispose();
-							resolve();
-							return;
-						}
-
-						const pendingConfirmation = response.isPendingConfirmation.get();
-						if (pendingConfirmation) {
-							// Check if the pending confirmation is a question carousel that will be auto-replied.
-							// Only question carousels are auto-replied; other confirmation types (tool approvals,
-							// elicitations, etc.) should cause us to resolve immediately.
-							const hasPendingQuestionCarousel = response.response.value.some(
-								part => part.kind === 'questionCarousel' && !part.isUsed
-							);
-							if (autoReplyEnabled && hasPendingQuestionCarousel) {
-								// Auto-reply will handle this question carousel, keep waiting
-								return;
+				const responseSettled = () => {
+					if (response.isComplete) {
+						return true;
+					}
+					const pendingConfirmation = response.isPendingConfirmation.get();
+					if (!pendingConfirmation) {
+						return false;
+					}
+					// Check if the pending confirmation is a question carousel that will be auto-replied.
+					// Only question carousels are auto-replied; other confirmation types (tool approvals,
+					// elicitations, etc.) should cause us to resolve immediately.
+					const hasPendingQuestionCarousel = response.response.value.some(
+						part => part.kind === 'questionCarousel' && !part.isUsed
+					);
+					return !(autoReplyEnabled && hasPendingQuestionCarousel);
+				};
+				if (!responseSettled()) {
+					await new Promise<void>(resolve => {
+						const d = response.onDidChange(() => {
+							if (responseSettled()) {
+								d.dispose();
+								resolve();
 							}
-							d.dispose();
-							resolve();
-						}
+						});
 					});
-				});
+				}
 
 				const confirmationInfo = getPendingConfirmationInfo(response);
 				if (confirmationInfo) {

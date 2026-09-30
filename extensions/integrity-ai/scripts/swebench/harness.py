@@ -239,35 +239,52 @@ def capture_patch(repo_dir: Path) -> str:
     return result.stdout
 
 
-def write_profile(profile: Path, api_key: str, model_id: str) -> None:
-    user_dir = profile / 'User'
-    user_dir.mkdir(parents=True, exist_ok=True)
-    settings = {
+def smoke_profile_settings(api_key: str, model_id: str) -> dict[str, object]:
+    """Throwaway profile settings.
+
+    A fresh user-data dir is a new application, and the default first-launch
+    experience is the Sign In onboarding overlay. That overlay blocks the
+    unattended smoke run, so it stays off here.
+    """
+    return {
         'security.workspace.trust.enabled': False,
         'update.mode': 'none',
         'telemetry.telemetryLevel': 'off',
+        'workbench.startupEditor': 'none',
+        'workbench.welcomePage.experimentalOnboarding': False,
         'integrity.ai.defaultProvider': 'ollama',
         'integrity.ai.ollama.chatModel': ollama_chat_model(model_id),
         'integrity.ai.ollama.embeddingModel': 'nomic-embed-text',
         'integrity.ai.jev.apiKey': api_key,
     }
+
+
+def write_profile(profile: Path, api_key: str, model_id: str) -> None:
+    user_dir = profile / 'User'
+    user_dir.mkdir(parents=True, exist_ok=True)
+    settings = smoke_profile_settings(api_key, model_id)
     (user_dir / 'settings.json').write_text(json.dumps(settings, indent=2) + '\n', encoding='utf-8')
 
 
-def launch_command(root: Path, task_repo: Path, profile: Path) -> list[str]:
-    """Dev Electron treats the first positional as the app root and strips it.
+def window_argv(app_root: Path, task_repo: Path, profile: Path) -> list[str]:
+    """Arguments after the Electron binary.
 
-    The task repo is the only workspace folder. Passing it first would drop it
-    and open an empty window.
+    Dev mode strips the first positional as the app root, so that must be
+    `app_root` and the task repo must come later. `--skip-welcome` keeps the
+    first-launch Sign In overlay from covering the window.
     """
     return [
-        str(electron_binary(root)),
-        str(root),
+        str(app_root),
         '--disable-extension=vscode.vscode-api-tests',
         '--disable-workspace-trust',
+        '--skip-welcome',
         f'--user-data-dir={profile}',
         str(task_repo),
     ]
+
+
+def launch_command(root: Path, task_repo: Path, profile: Path) -> list[str]:
+    return [str(electron_binary(root)), *window_argv(root, task_repo, profile)]
 
 
 def window_env(prompt: Path, status: Path, model_id: str) -> dict[str, str]:
