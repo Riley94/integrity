@@ -3,7 +3,7 @@
  *  Licensed under the MIT License.
  *--------------------------------------------------------------------------------------------*/
 
-import { EDIT_TOOLS, READ_ONLY_TOOLS } from '../agent/toolNames';
+import { READ_ONLY_TOOLS } from '../agent/toolNames';
 import type { ChoiceQuestion, JevAnswer, JevQuestion, JevState, NoulQuestion } from './jevClient';
 
 export const ROUTING_MODEL_QUESTION = 'model';
@@ -26,8 +26,8 @@ export interface JevThresholds {
 	toolSurfaceConfidence: number;
 }
 
-/** Nested tool ceiling. Each wider surface includes the tools of the narrower ones. */
-export type ToolSurface = 'reply' | 'read' | 'edit' | 'act';
+/** Choice id for a text-only turn. Not a real tool name. */
+export const TOOL_REPLY_CHOICE = 'reply';
 
 export interface ToolSurfaceTool {
 	name: string;
@@ -175,82 +175,55 @@ export function interpretRouting(args: {
 	return choice.choice;
 }
 
-const TOOL_SURFACE_CRITERIA: Record<ToolSurface, string> = {
-	reply: 'Answer in text. No tools.',
-	read: 'Inspect the codebase with read and search tools only.',
-	edit: 'Read the codebase and change files. Includes read tools.',
-	act: 'Use every tool this mode allows, including terminal and other workbench tools. Includes read and edit.',
-};
-
 /**
- * Ceilings that would change the tool list. An empty catalog offers nothing.
- * A ceiling is omitted when it filters to the same set as the next-narrower one.
+ * Options Jev may choose: text-only, then each real tool. An empty catalog offers nothing.
+ * A tool literally named {@link TOOL_REPLY_CHOICE} is omitted so it cannot collide with text-only.
  */
-export function offeredToolSurfaces(toolNames: readonly string[]): ToolSurface[] {
+export function offeredToolChoices(toolNames: readonly string[]): string[] {
 	if (!toolNames.length) {
 		return [];
 	}
-	let readCount = 0;
-	let editCount = 0;
-	let actCount = 0;
-	for (const name of toolNames) {
-		const rank = toolSurfaceRank(name);
-		if (rank === 'read') {
-			readCount++;
-		} else if (rank === 'edit') {
-			editCount++;
-		} else {
-			actCount++;
-		}
-	}
-	const offered: ToolSurface[] = ['reply'];
-	if (readCount > 0) {
-		offered.push('read');
-	}
-	if (editCount > 0) {
-		offered.push('edit');
-	}
-	if (actCount > 0) {
-		offered.push('act');
-	}
-	return offered;
+	return [TOOL_REPLY_CHOICE, ...toolNames.filter(name => name !== TOOL_REPLY_CHOICE)];
 }
 
 /**
- * Choice over nested tool ceilings, plus a Noul for "none of these".
- * Returns undefined when the catalog cannot be narrowed.
+ * Choice of exactly one tool, or reply for text only, plus a Noul for "none of these".
+ * Returns undefined when there is no tool to choose.
  */
 export function buildToolSurfaceRequest(
 	prompt: string,
 	mode: string,
 	tools: readonly ToolSurfaceTool[],
 ): PreparedJevCall | undefined {
-	const offered = offeredToolSurfaces(tools.map(tool => tool.name));
+	const selectable = tools.filter(tool => tool.name !== TOOL_REPLY_CHOICE);
+	const offered = offeredToolChoices(selectable.map(tool => tool.name));
 	if (!offered.length) {
 		return undefined;
 	}
-	const criteria: Record<string, string> = {};
-	for (const surface of offered) {
-		criteria[surface] = TOOL_SURFACE_CRITERIA[surface];
+	const criteria: Record<string, string> = {
+		[TOOL_REPLY_CHOICE]: 'Answer in text. Do not call a tool.',
+	};
+	for (const tool of selectable) {
+		criteria[tool.name] = clip(tool.description, 400) || tool.name;
 	}
 	const choice: ChoiceQuestion = {
 		type: 'choice',
-		instructions: 'Which tool surface should the writer be allowed to use for this turn? Prefer the narrowest surface that can still carry out the task. Read is included in edit. Edit is included in act.',
+		instructions: 'Which single option should the writer use for this turn? Choose reply when the task can be answered without a tool. Otherwise choose the one tool that should be called. The writer will not be allowed to call any other tool.',
 		criteria,
 	};
 	const noneSuitable: NoulQuestion = {
 		type: 'noul',
-		instructions: 'Is none of these tool surfaces suitable for this task?',
+		instructions: 'Is none of these options suitable for this task?',
 		criteria: {
-			true: 'No offered surface should constrain this turn',
-			false: 'At least one surface is suitable',
+			true: 'Neither a text answer nor any listed tool should be used',
+			false: 'Reply or one listed tool is suitable',
 		},
 	};
 	return {
 		state: {
 			task: clip(prompt, 8000),
 			mode,
-			tools: tools.map(tool => ({
+			tools: selectable.map(tool => ({
 				name: tool.name,
 				description: clip(tool.description, 400),
 			})),
@@ -263,15 +236,110 @@ export function buildToolSurfaceRequest(
 }
 
 /**
- * Narrow only when Jev is confident, the chosen ceiling was offered, and "none suitable" is below the threshold.
- * Any failure keeps the mode's full tool list.
+ * The one tool the writer may call, or undefined for a text-only turn.
+ * Reply, a missing answer, low confidence, and an unknown id are all text-only.
  */
 export function interpretToolSurface(args: {
 	answers: Record<string, JevAnswer> | undefined;
 	unavailable: boolean;
-	offered: readonly ToolSurface[];
+	offered: readonly string[];
 	toolSurfaceConfidence: number;
-}): ToolSurface | undefined {
+}): string | undefined {
+	const choice = selectedToolChoice(args);
+	if (!choice || choice === TOOL_REPLY_CHOICE) {
+		return undefined;
+	}
+	return choice;
+}
+
+/** Selected tool, or undefined when the writer must answer in text. */
+export interface ToolSurfaceTrace {
+	toolName: string | undefined;
+	text: string;
+}
+
+/**
+ * Explain Jev's single-tool choice. The text includes the raw answer even when the turn stays text-only.
+ * `toolName` matches {@link interpretToolSurface}.
+ */
+export function explainToolSurface(args: {
+	answers: Record<string, JevAnswer> | undefined;
+	unavailable: boolean;
+	offered: readonly string[];
+	toolSurfaceConfidence: number;
+	toolNames: readonly string[];
+}): ToolSurfaceTrace {
+	if (!args.offered.length) {
+		return {
+			toolName: undefined,
+			text: 'Jev tools\ndecision: text only (nothing to choose)',
+		};
+	}
+	const toolName = interpretToolSurface(args);
+	const lines = ['Jev tools', `offered: ${args.offered.join(', ')}`];
+	const choice = args.answers?.[TOOL_SURFACE_QUESTION];
+	const none = args.answers?.[TOOL_SURFACE_NONE_QUESTION];
+	if (choice?.type === 'choice') {
+		lines.push(`choice: ${choice.choice}`);
+		lines.push(`confidence: ${formatScore(choice.confidence)}`);
+		lines.push(`threshold: ${formatScore(args.toolSurfaceConfidence)}`);
+		lines.push(`probabilities: ${formatProbabilities(choice.probabilities, args.offered)}`);
+	}
+	if (none?.type === 'noul') {
+		lines.push(`none suitable: ${formatScore(none.noul)}`);
+	}
+	lines.push(`decision: ${toolChoiceDecision(args)}`);
+	lines.push(`tool: ${toolName ?? 'none'}`);
+	const withheld = args.toolNames.filter(name => name !== toolName && name !== TOOL_REPLY_CHOICE);
+	lines.push(`withheld: ${formatNameList(withheld)}`);
+	return { toolName, text: lines.join('\n') };
+}
+
+/** Shown when this turn does not ask Jev which ceiling to use. */
+export function describeSkippedToolSurface(reason: string): string {
+	return `Jev tools\ndecision: skipped (${reason})`;
+}
+
+/**
+ * Human-readable host decision. A confident reply or a real tool name is applied.
+ * Every other outcome leaves the writer with no tool.
+ */
+function toolChoiceDecision(args: {
+	answers: Record<string, JevAnswer> | undefined;
+	unavailable: boolean;
+	offered: readonly string[];
+	toolSurfaceConfidence: number;
+}): string {
+	if (args.unavailable || !args.answers) {
+		return 'text only (Jev did not answer)';
+	}
+	const choice = args.answers[TOOL_SURFACE_QUESTION];
+	const none = args.answers[TOOL_SURFACE_NONE_QUESTION];
+	if (!choice || choice.type !== 'choice' || !none || none.type !== 'noul') {
+		return 'text only (answer was missing a choice or a none-suitable score)';
+	}
+	if (choice.confidence < args.toolSurfaceConfidence) {
+		return `text only (confidence ${formatScore(choice.confidence)} is below ${formatScore(args.toolSurfaceConfidence)})`;
+	}
+	if (none.noul >= args.toolSurfaceConfidence) {
+		return `text only (none suitable ${formatScore(none.noul)} is at or above ${formatScore(args.toolSurfaceConfidence)})`;
+	}
+	if (!args.offered.includes(choice.choice)) {
+		return `text only (choice ${choice.choice} was not offered)`;
+	}
+	if (choice.choice === TOOL_REPLY_CHOICE) {
+		return 'text only (Jev chose reply)';
+	}
+	return `selected ${choice.choice}`;
+}
+
+/** The chosen id when it is confident and offered, including {@link TOOL_REPLY_CHOICE}. */
+function selectedToolChoice(args: {
+	answers: Record<string, JevAnswer> | undefined;
+	unavailable: boolean;
+	offered: readonly string[];
+	toolSurfaceConfidence: number;
+}): string | undefined {
 	if (args.unavailable || !args.answers) {
 		return undefined;
 	}
@@ -286,40 +354,43 @@ export function interpretToolSurface(args: {
 	if (none.noul >= args.toolSurfaceConfidence) {
 		return undefined;
 	}
-	if (!isOfferedSurface(choice.choice, args.offered)) {
+	if (!args.offered.includes(choice.choice)) {
 		return undefined;
 	}
 	return choice.choice;
 }
 
 /**
- * Apply a nested ceiling. `act` keeps every name; `reply` keeps none.
+ * Reject a model tool call that is not the single tool Jev selected.
+ * A text-only turn rejects every call.
  */
-export function filterToolsForSurface<T extends { name: string }>(tools: readonly T[], surface: ToolSurface): T[] {
-	if (surface === 'reply') {
-		return [];
+export function rejectionForUnselectedTool(toolName: string, selectedTool: string | undefined): string | undefined {
+	if (!selectedTool) {
+		return 'Tool error: this turn has no tool. Answer in text.';
 	}
-	if (surface === 'act') {
-		return [...tools];
+	if (toolName !== selectedTool) {
+		return `Tool error: this turn may only call ${selectedTool}.`;
 	}
-	if (surface === 'read') {
-		return tools.filter(tool => READ_ONLY_TOOLS.has(tool.name));
-	}
-	return tools.filter(tool => READ_ONLY_TOOLS.has(tool.name) || EDIT_TOOLS.has(tool.name));
+	return undefined;
 }
 
-function toolSurfaceRank(name: string): 'read' | 'edit' | 'act' {
-	if (READ_ONLY_TOOLS.has(name)) {
-		return 'read';
-	}
-	if (EDIT_TOOLS.has(name)) {
-		return 'edit';
-	}
-	return 'act';
+function formatScore(value: number): string {
+	return value.toFixed(2);
 }
 
-function isOfferedSurface(value: string, offered: readonly ToolSurface[]): value is ToolSurface {
-	return (offered as readonly string[]).includes(value);
+function formatProbabilities(probabilities: Record<string, number>, offered: readonly string[]): string {
+	const keys = [
+		...offered.filter(name => Object.prototype.hasOwnProperty.call(probabilities, name)),
+		...Object.keys(probabilities).filter(name => !offered.includes(name)).sort(),
+	];
+	if (!keys.length) {
+		return 'none';
+	}
+	return keys.map(key => `${key} ${formatScore(probabilities[key])}`).join(', ');
+}
+
+function formatNameList(names: readonly string[]): string {
+	return names.length ? names.join(', ') : 'none';
 }
 
 /**

@@ -12,7 +12,6 @@ import {
 	type ProposedToolCall,
 	type RetrievalHit,
 	type RoutingCandidate,
-	type ToolSurface,
 	type ToolSurfaceTool,
 	COMPLETION_QUESTION,
 	approvalQuestionId,
@@ -21,12 +20,13 @@ import {
 	buildRetrievalRequest,
 	buildRoutingRequest,
 	buildToolSurfaceRequest,
+	explainToolSurface,
 	interpretApproval,
 	interpretCompletion,
 	interpretRetrieval,
 	interpretRouting,
-	interpretToolSurface,
-	offeredToolSurfaces,
+	offeredToolChoices,
+	type ToolSurfaceTrace,
 } from './agentDecisions';
 import {
 	type JevAnswer,
@@ -92,27 +92,41 @@ export async function routeWriterModel(
 }
 
 /**
- * Tool ceiling for this turn, or undefined to keep every tool the mode already allows.
- * A missing key or failed call keeps the full list.
+ * The one tool for this turn, or undefined for text only.
+ * A missing key, a failed call, an unconfident answer, or reply all withhold every tool.
+ * `text` is the raw answer and that decision.
  */
 export async function routeToolSurface(
 	prompt: string,
 	mode: string,
 	tools: readonly ToolSurfaceTool[],
 	signal?: AbortSignal,
-): Promise<ToolSurface | undefined> {
+): Promise<ToolSurfaceTrace> {
+	const toolNames = tools.map(tool => tool.name);
+	const offered = offeredToolChoices(toolNames);
 	const request = buildToolSurfaceRequest(prompt, mode, tools);
 	if (!request) {
-		return undefined;
+		return explainToolSurface({
+			answers: undefined,
+			unavailable: true,
+			offered,
+			toolSurfaceConfidence: 0,
+			toolNames,
+		});
 	}
 	const { config, thresholds } = readJevRuntime();
 	const answers = await evaluateOrUnavailable(config, request, signal);
-	return interpretToolSurface({
+	const trace = explainToolSurface({
 		answers: answers ?? undefined,
 		unavailable: answers === null,
-		offered: offeredToolSurfaces(tools.map(tool => tool.name)),
+		offered,
 		toolSurfaceConfidence: thresholds.toolSurfaceConfidence,
+		toolNames,
 	});
+	for (const line of trace.text.split('\n')) {
+		logJev(line);
+	}
+	return trace;
 }
 
 /**

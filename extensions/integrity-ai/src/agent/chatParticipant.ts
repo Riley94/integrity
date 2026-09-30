@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as vscode from 'vscode';
-import { buildSystemPrompt } from './agentPrompt';
+import { buildSystemPrompt, type SelectedToolPrompt } from './agentPrompt';
 import { rejectionForMisroutedToolCall } from './browserToolGuard';
 import { loadAgentRules, type CodebaseSearchIndex } from './lmTools';
 import { extractPathFromInput } from './pathPolicy';
@@ -19,12 +19,12 @@ import {
 	type CompletionDecision,
 	approvalQuestionId,
 	blockedMutatingToolMessage,
-	filterToolsForSurface,
+	describeSkippedToolSurface,
 	formatRetrievedChunks,
 	interpretCompletion,
 	isMutatingTool,
 	isTerminalTool,
-	type ToolSurface,
+	rejectionForUnselectedTool,
 } from '../jev/agentDecisions';
 import {
 	beginCancellation,
@@ -181,29 +181,38 @@ export async function runChatAgentLoop(
 	}
 
 	const extraContext = [referencesContext(request), retrieved].filter(part => part.trim()).join('\n\n');
-	const system = buildSystemPrompt(mode, agentRules, extraContext);
 
 	let tools = collectEnabledTools(request, mode);
-	if (!request.toolReferences.length && tools.length) {
+	let selectedTool: SelectedToolPrompt | undefined;
+	if (!tools.length) {
+		stream.markdown(fencedTrace(describeSkippedToolSurface('no tools were enabled')));
+	} else {
 		try {
-			stream.progress('Choosing tools with Jev…');
-			const surface = await selectToolSurface(request.prompt, mode, tools, token);
-			if (surface) {
-				const narrowed = filterToolsForSurface(tools, surface);
-				if (narrowed.length < tools.length) {
-					stream.progress(toolSurfaceProgress(surface));
-					tools = narrowed;
-				}
+			stream.progress('Choosing a tool with Jev…');
+			const trace = await selectToolSurface(request.prompt, mode, tools, token);
+			stream.markdown(fencedTrace(trace.text));
+			const match = trace.toolName ? tools.find(tool => tool.name === trace.toolName) : undefined;
+			if (match) {
+				selectedTool = { name: match.name, description: match.description };
+				tools = [match];
+				stream.progress(`Using ${match.name}…`);
+			} else {
+				tools = [];
+				stream.progress('Answering without tools…');
 			}
 		} catch (err) {
 			if (isAbortError(err) || token.isCancellationRequested) {
 				return {};
 			}
+			const message = err instanceof Error ? err.message : String(err);
+			tools = [];
+			stream.markdown(fencedTrace(describeSkippedToolSurface(message)));
 		}
 		if (token.isCancellationRequested) {
 			return {};
 		}
 	}
+	const system = buildSystemPrompt(mode, agentRules, extraContext, selectedTool);
 	const maxSteps = vscode.workspace.getConfiguration('integrity.ai').get<number>('agent.maxSteps', DEFAULT_MAX_STEPS);
 
 	const messages: vscode.LanguageModelChatMessage[] = [
@@ -225,9 +234,7 @@ export async function runChatAgentLoop(
 		try {
 			response = await model.sendRequest(messages, {
 				tools: tools.length ? tools : undefined,
-				toolMode: request.toolReferences.length
-					? vscode.LanguageModelChatToolMode.Required
-					: vscode.LanguageModelChatToolMode.Auto,
+				toolMode: vscode.LanguageModelChatToolMode.Auto,
 			}, token);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
@@ -301,7 +308,7 @@ export async function runChatAgentLoop(
 
 		messages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
 
-		const resultParts = await settleToolCalls(toolCalls, request, stream, token);
+		const resultParts = await settleToolCalls(toolCalls, selectedTool?.name, request, stream, token);
 		if (!resultParts) {
 			return {};
 		}
@@ -351,14 +358,15 @@ async function selectWriterModel(
 }
 
 /**
- * Pick a tool ceiling once per turn. A missing Jev answer keeps every tool the mode allows.
+ * Ask Jev for the one tool on this turn. A missing answer leaves the writer with no tool.
+ * The returned text is the raw answer and that decision.
  */
 async function selectToolSurface(
 	prompt: string,
 	mode: AgentModeKind,
 	tools: readonly vscode.LanguageModelChatTool[],
 	token: vscode.CancellationToken,
-): Promise<ToolSurface | undefined> {
+) {
 	const linked = beginCancellation(token);
 	try {
 		return await routeToolSurface(
@@ -372,17 +380,8 @@ async function selectToolSurface(
 	}
 }
 
-function toolSurfaceProgress(surface: ToolSurface): string {
-	switch (surface) {
-		case 'reply':
-			return 'Answering without tools…';
-		case 'read':
-			return 'Tools limited to read…';
-		case 'edit':
-			return 'Tools limited to edit…';
-		case 'act':
-			return 'Tools limited to act…';
-	}
+function fencedTrace(text: string): string {
+	return '```\n' + text + '\n```\n\n';
 }
 
 /**
@@ -441,6 +440,7 @@ async function completionDecision(
  */
 async function settleToolCalls(
 	toolCalls: readonly vscode.LanguageModelToolCallPart[],
+	selectedTool: string | undefined,
 	request: vscode.ChatRequest,
 	stream: vscode.ChatResponseStream,
 	token: vscode.CancellationToken,
@@ -455,8 +455,13 @@ async function settleToolCalls(
 		if (!call.name?.trim()) {
 			slots.push({
 				call,
-				text: 'Tool error: empty tool name. Call integrity_apply_patch with path and hunks/patch, or another integrity_* tool.',
+				text: 'Tool error: empty tool name.',
 			});
+			continue;
+		}
+		const unselected = rejectionForUnselectedTool(call.name, selectedTool);
+		if (unselected) {
+			slots.push({ call, text: unselected });
 			continue;
 		}
 		const rejected = rejectionForMisroutedToolCall(call.name, call.input);

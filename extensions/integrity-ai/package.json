@@ -135,7 +135,7 @@
           "default": 0.6,
           "minimum": 0,
           "maximum": 1,
-          "description": "Minimum Choice confidence required to narrow the writer's tool list"
+          "description": "Minimum Choice confidence required for Jev to select the one tool the writer may call"
         },
         "integrity.ai.inlineCompletions.enabled": {
           "type": "boolean",
