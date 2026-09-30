@@ -30,6 +30,7 @@ import {
 	offeredToolChoices,
 	rejectionForUnselectedTool,
 	TOOL_REPLY_CHOICE,
+	TOOL_SURFACE_REPLY_MARGIN,
 	retrievalQuestionId,
 	toolSurfaceQuestionId,
 } from '../agentDecisions';
@@ -188,6 +189,44 @@ describe('interpretToolSurface', () => {
 			},
 		}), ['integrity_apply_patch']);
 	});
+
+	it('answers in text when a tool leads reply by no more than the margin', () => {
+		const replyScore = 0.55;
+		assert.deepEqual(interpretToolSurface({
+			offered,
+			toolSurfaceConfidence: 0.5,
+			unavailable: false,
+			answers: {
+				[TOOL_REPLY_CHOICE]: noul(replyScore),
+				integrity_read_file: noul(0.54),
+				integrity_apply_patch: noul(0.56),
+				run_in_terminal: noul(0.48),
+			},
+		}), []);
+		assert.deepEqual(interpretToolSurface({
+			...base,
+			unavailable: false,
+			answers: {
+				[TOOL_REPLY_CHOICE]: noul(0.7),
+				integrity_read_file: noul(0.65),
+				integrity_apply_patch: noul(0.7 + TOOL_SURFACE_REPLY_MARGIN),
+				run_in_terminal: noul(0.4),
+			},
+		}), []);
+	});
+
+	it('keeps passing tools when a tool leads reply by more than the margin', () => {
+		assert.deepEqual(interpretToolSurface({
+			...base,
+			unavailable: false,
+			answers: {
+				[TOOL_REPLY_CHOICE]: noul(0.7),
+				integrity_read_file: noul(0.65),
+				integrity_apply_patch: noul(0.7 + TOOL_SURFACE_REPLY_MARGIN + 0.01),
+				run_in_terminal: noul(0.4),
+			},
+		}), ['integrity_read_file', 'integrity_apply_patch']);
+	});
 });
 
 describe('explainToolSurface', () => {
@@ -215,6 +254,7 @@ describe('explainToolSurface', () => {
 			'integrity_apply_patch: 0.71',
 			'run_in_terminal: 0.08',
 			'threshold: 0.60',
+			'margin: 0.05',
 			'decision: selected integrity_read_file, integrity_apply_patch',
 			'tools: integrity_read_file, integrity_apply_patch',
 			'withheld: run_in_terminal',
@@ -236,6 +276,7 @@ describe('explainToolSurface', () => {
 		});
 		assert.deepEqual(trace.toolNames, []);
 		assert.match(trace.text, /reply: 0.86/);
+		assert.match(trace.text, /margin: 0.05/);
 		assert.match(trace.text, /decision: text only \(Jev chose reply\)/);
 		assert.match(trace.text, /tools: none/);
 		assert.match(trace.text, /withheld: integrity_read_file, integrity_apply_patch, run_in_terminal/);

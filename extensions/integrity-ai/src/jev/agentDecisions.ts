@@ -17,6 +17,12 @@ export const COMPLETION_BLOCKED_MESSAGE =
 /** Choice id for a text-only turn. Not a real tool name. */
 export const TOOL_REPLY_CHOICE = 'reply';
 
+/**
+ * How far a tool Noul must outscore reply before the turn leaves text.
+ * A smaller lead is the same uncertain reading, so reply still wins.
+ */
+export const TOOL_SURFACE_REPLY_MARGIN = 0.05;
+
 export interface JevThresholds {
 	approvalThreshold: number;
 	retrievalThreshold: number;
@@ -180,7 +186,7 @@ export function buildToolSurfaceRequest(
 
 /**
  * Every offered tool whose Noul is at or above the threshold.
- * Reply is not a tool. When its Noul clears the threshold and is at least as high as every tool, the turn is text-only.
+ * Reply is not a tool. When its Noul clears the threshold and no tool exceeds it by more than {@link TOOL_SURFACE_REPLY_MARGIN}, the turn is text-only.
  * A missing answer, a non-Noul, or a score under the threshold withholds that tool.
  * An empty list is a text-only turn.
  */
@@ -243,6 +249,7 @@ export function explainToolSurface(args: {
 		}
 	}
 	lines.push(`threshold: ${formatScore(args.toolSurfaceConfidence)}`);
+	lines.push(`margin: ${formatScore(TOOL_SURFACE_REPLY_MARGIN)}`);
 	lines.push(`decision: ${toolSurfaceDecision(args, selected)}`);
 	lines.push(`tools: ${formatNameList(selected)}`);
 	const selectedSet = new Set(selected);
@@ -280,7 +287,7 @@ function debugJson(value: unknown): string {
 
 /**
  * Human-readable host decision.
- * Reply wins when it clears the threshold and no tool scores higher, so a question can be answered in text.
+ * Reply wins when it clears the threshold and no tool exceeds it by more than the reply margin, so a question can be answered in text.
  * Otherwise every tool at or above the threshold is kept.
  */
 function toolSurfaceDecision(args: {
@@ -302,7 +309,7 @@ function toolSurfaceDecision(args: {
 }
 
 /**
- * True when a text answer is at least as strong as every tool and clears the threshold.
+ * True when a text answer clears the threshold and no tool beats it by more than {@link TOOL_SURFACE_REPLY_MARGIN}.
  * A missing reply does not block tools that already passed.
  */
 function replyOutranksTools(
@@ -324,7 +331,7 @@ function replyOutranksTools(
 			bestTool = Math.max(bestTool, answer.noul);
 		}
 	}
-	return reply.noul >= bestTool;
+	return reply.noul + TOOL_SURFACE_REPLY_MARGIN >= bestTool;
 }
 
 function formatToolNoul(answer: JevAnswer | undefined): string {
