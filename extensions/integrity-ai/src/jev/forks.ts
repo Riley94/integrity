@@ -65,7 +65,7 @@ export function readJevRuntime(): JevRuntime {
 /**
  * The one tool for this turn, or undefined for text only.
  * A missing key, a failed call, an unconfident answer, or reply all withhold every tool.
- * `text` is the raw answer and that decision.
+ * `text` is the raw answer and that decision. `request` is the state and questions that were sent.
  */
 export async function routeToolSurface(
 	prompt: string,
@@ -97,7 +97,7 @@ export async function routeToolSurface(
 	for (const line of trace.text.split('\n')) {
 		logJev(line);
 	}
-	return trace;
+	return { ...trace, request };
 }
 
 /**

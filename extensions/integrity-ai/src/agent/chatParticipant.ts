@@ -20,6 +20,7 @@ import {
 	blockedMutatingToolMessage,
 	describeSkippedToolSurface,
 	formatRetrievedChunks,
+	formatToolSurfaceDebug,
 	interpretCompletion,
 	isMutatingTool,
 	isTerminalTool,
@@ -131,7 +132,7 @@ export async function runChatAgentLoop(
 	const mode = inferModeKind(typeof modeName === 'string' ? modeName : 'agent');
 	const agentRules = await loadAgentRules();
 
-	// The writer is the model the user selected. Jev does not switch it.
+	// The writer is the model the user selected.
 	const model = request.model;
 	if (!model) {
 		stream.markdown('No language model is available. Start Ollama from the Command Palette (**Integrity: Start Ollama**) or configure a BYOK provider in Integrity AI settings.');
@@ -170,12 +171,12 @@ export async function runChatAgentLoop(
 	let tools = collectEnabledTools(request, mode);
 	let selectedTool: SelectedToolPrompt | undefined;
 	if (!tools.length) {
-		stream.markdown(fencedTrace(describeSkippedToolSurface('no tools were enabled')));
+		printJevDebug(stream, describeSkippedToolSurface('no tools were enabled'));
 	} else {
 		try {
 			stream.progress('Choosing a tool with Jev…');
 			const trace = await selectToolSurface(request.prompt, mode, tools, token);
-			stream.markdown(fencedTrace(trace.text));
+			printJevDebug(stream, formatToolSurfaceDebug(trace.request, trace.text));
 			const match = trace.toolName ? tools.find(tool => tool.name === trace.toolName) : undefined;
 			if (match) {
 				selectedTool = { name: match.name, description: match.description };
@@ -191,7 +192,7 @@ export async function runChatAgentLoop(
 			}
 			const message = err instanceof Error ? err.message : String(err);
 			tools = [];
-			stream.markdown(fencedTrace(describeSkippedToolSurface(message)));
+			printJevDebug(stream, describeSkippedToolSurface(message));
 		}
 		if (token.isCancellationRequested) {
 			return {};
@@ -327,8 +328,16 @@ async function selectToolSurface(
 	}
 }
 
-function fencedTrace(text: string): string {
-	return '```\n' + text + '\n```\n\n';
+/** True when `integrity.ai.jev.debug` should print Jev requests and replies in chat. */
+function jevDebugEnabled(): boolean {
+	return vscode.workspace.getConfiguration('integrity.ai').get<boolean>('jev.debug', false);
+}
+
+function printJevDebug(stream: vscode.ChatResponseStream, text: string): void {
+	if (!jevDebugEnabled()) {
+		return;
+	}
+	stream.markdown('```\n' + text + '\n```\n\n');
 }
 
 /**

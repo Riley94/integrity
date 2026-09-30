@@ -165,7 +165,10 @@ export function interpretToolSurface(args: {
 /** Selected tool, or undefined when the writer must answer in text. */
 export interface ToolSurfaceTrace {
 	toolName: string | undefined;
+	/** Reply explanation. The chat prints this only when `integrity.ai.jev.debug` is on. */
 	text: string;
+	/** State and questions sent to Jev, when a request was built. */
+	request?: PreparedJevCall;
 }
 
 /**
@@ -208,6 +211,28 @@ export function explainToolSurface(args: {
 /** Shown when this turn does not ask Jev which ceiling to use. */
 export function describeSkippedToolSurface(reason: string): string {
 	return `Jev tools\ndecision: skipped (${reason})`;
+}
+
+/**
+ * Chat dump of one tool-surface call: the state and questions that were sent, then the reply.
+ * A skipped call has no request, so only the reply is included.
+ */
+export function formatToolSurfaceDebug(request: PreparedJevCall | undefined, reply: string): string {
+	if (!request) {
+		return reply;
+	}
+	return [
+		'Jev request',
+		`state:\n${debugJson(request.state)}`,
+		`questions:\n${debugJson(request.questions)}`,
+		'',
+		reply,
+	].join('\n');
+}
+
+function debugJson(value: unknown): string {
+	const text = JSON.stringify(value, null, 2);
+	return text ?? String(value);
 }
 
 /**

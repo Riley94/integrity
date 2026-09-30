@@ -4,7 +4,10 @@
  *--------------------------------------------------------------------------------------------*/
 
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
 	COMPLETION_BLOCKED_MESSAGE,
 	COMPLETION_UNVERIFIED_MESSAGE,
@@ -17,6 +20,7 @@ import {
 	buildToolSurfaceRequest,
 	describeSkippedToolSurface,
 	explainToolSurface,
+	formatToolSurfaceDebug,
 	formatRetrievedChunks,
 	interpretApproval,
 	interpretCompletion,
@@ -288,6 +292,35 @@ describe('describeSkippedToolSurface', () => {
 			describeSkippedToolSurface('no tools were enabled'),
 			'Jev tools\ndecision: skipped (no tools were enabled)',
 		);
+	});
+});
+
+describe('formatToolSurfaceDebug', () => {
+	it('prints the state and questions ahead of the reply', () => {
+		const request = buildToolSurfaceRequest('fix the test', 'agent', surfaceTools);
+		assert.ok(request);
+		const reply = 'Jev tools\ndecision: selected integrity_read_file';
+		const text = formatToolSurfaceDebug(request, reply);
+		assert.match(text, /^Jev request\nstate:\n\{/);
+		assert.match(text, /"task": "fix the test"/);
+		assert.match(text, /"mode": "agent"/);
+		assert.match(text, /questions:\n\{/);
+		assert.match(text, /"surface"/);
+		assert.match(text, /"none_suitable"/);
+		assert.ok(text.endsWith('\n\n' + reply));
+	});
+
+	it('prints only the reply when no request was sent', () => {
+		const reply = describeSkippedToolSurface('no tools were enabled');
+		assert.equal(formatToolSurfaceDebug(undefined, reply), reply);
+	});
+
+	it('is off unless the development setting is enabled', () => {
+		const pkgPath = join(dirname(fileURLToPath(import.meta.url)), '../../../package.json');
+		const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as {
+			contributes: { configuration: { properties: Record<string, { default?: boolean }> } };
+		};
+		assert.equal(pkg.contributes.configuration.properties['integrity.ai.jev.debug'].default, false);
 	});
 });
 
