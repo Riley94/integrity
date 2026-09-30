@@ -64,6 +64,53 @@ export function inferModeKind(modeName: string | undefined): AgentModeKind {
 	return 'agent';
 }
 
+/** Integrity tools the chat tool picker does not list, so a request can omit them. */
+const INTEGRITY_TOOLS: ReadonlySet<string> = new Set([
+	...READ_ONLY_TOOLS,
+	...EDIT_TOOLS,
+]);
+
+/**
+ * Tools to send to Jev.
+ * The chat request only includes picker tools. Integrity's tools are not in that picker,
+ * so a request that simply omits them still offers every Integrity tool this mode allows.
+ * A tool the request marks disabled stays out.
+ * When the request has no tool map, every registered tool allowed in the mode is offered.
+ */
+export function selectToolsForJev<T extends { name: string }>(
+	mode: AgentModeKind,
+	requestTools: ReadonlyMap<T, boolean> | undefined,
+	registered: readonly T[],
+): T[] {
+	if (!requestTools) {
+		return registered.filter(tool => isToolAllowedInMode(tool.name, mode));
+	}
+
+	const requested = new Map<string, boolean>();
+	const selected: T[] = [];
+	const seen = new Set<string>();
+	for (const [tool, enabled] of requestTools) {
+		requested.set(tool.name, enabled);
+		if (!enabled || seen.has(tool.name) || !isToolAllowedInMode(tool.name, mode)) {
+			continue;
+		}
+		seen.add(tool.name);
+		selected.push(tool);
+	}
+
+	for (const tool of registered) {
+		if (seen.has(tool.name) || !INTEGRITY_TOOLS.has(tool.name)) {
+			continue;
+		}
+		if (requested.get(tool.name) === false || !isToolAllowedInMode(tool.name, mode)) {
+			continue;
+		}
+		seen.add(tool.name);
+		selected.push(tool);
+	}
+	return selected;
+}
+
 /**
  * Whether a contributed/workbench tool should be offered for the given mode.
  */

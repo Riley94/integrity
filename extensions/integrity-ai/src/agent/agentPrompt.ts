@@ -11,35 +11,56 @@ import type { AgentModeKind } from './toolNames';
 export function modeSystemPrompt(mode: AgentModeKind): string {
 	switch (mode) {
 		case 'ask':
-			return 'You are in Ask mode: answer questions using read-only tools only. Do not edit files or run terminal commands.';
+			return 'You are in Ask mode.';
 		case 'edit':
-			return 'You are in Edit mode: you may read and edit files. Do not run terminal commands.';
+			return 'You are in Edit mode. Prefer small, correct edits.';
 		case 'agent':
 		default:
-			return 'You are in Agent mode: you may read/edit files, search the codebase, manage todos, and run terminal commands when needed. Prefer small, correct edits. Explain briefly when done.';
+			return 'You are in Agent mode. Prefer small, correct edits. Explain briefly when done.';
 	}
 }
 
+export interface SelectedToolPrompt {
+	name: string;
+	description: string;
+}
+
 /**
- * Short tool-choice guide for local models (no JSON schemas — those arrive via options.tools).
+ * Instructions for the tools Jev kept, or text-only when Jev kept none.
+ * Does not name any other tool.
  */
-export const TOOL_DECISION_GUIDE = [
-	'Tool choice guide:',
-	'- Read / find: integrity_read_file, integrity_list_dir, integrity_file_search, integrity_grep_search, integrity_codebase_search.',
-	'- Change files: prefer integrity_apply_patch. To add code: { "path": "main.py", "hunks": [{ "newText": "<code>" }] } or { "path": "main.py", "patch": "<code>" }. For a unique swap use hunks with oldText. Use integrity_replace_string only for an exact in-place swap. Use integrity_create_file only for a brand-new path. Read with integrity_read_file before editing when the file may already exist.',
-	'- Paths: always pass a workspace-relative path in "path" (e.g. path: "main.py" or path: "src/main.py"). Never invent placeholders like /path/to/main.py. When the user names a file, use that basename (or integrity_file_search with **/name) — do not ask the user for the path with vscode_askQuestions.',
-	'- Shell: run_in_terminal (Agent mode only).',
-	'- Browser: open_browser_page / run_playwright_code only when the user asked to open or drive a web page. Never use browser tools to author or edit workspace files.',
-].join('\n');
+export function toolTurnInstructions(tools: readonly SelectedToolPrompt[]): string {
+	if (!tools.length) {
+		return 'This turn has no tools. Answer in text. Do not call tools.';
+	}
+	if (tools.length === 1) {
+		const tool = tools[0];
+		const description = tool.description.trim();
+		const detail = description ? ` ${description}` : '';
+		return `Tool for this turn: ${tool.name}.${detail} Call only ${tool.name}. Do not call any other tool.`;
+	}
+	const listed = tools.map(tool => {
+		const description = tool.description.trim();
+		return description ? `${tool.name}. ${description}` : tool.name;
+	}).join(' ');
+	const names = tools.map(tool => tool.name).join(', ');
+	return `Tools for this turn: ${listed} Call only ${names}. Do not call any other tool.`;
+}
 
 /**
  * Build the Integrity chat participant system prompt.
+ * `tools` are the only tools the writer may see. Omit them for a text-only turn.
  */
-export function buildSystemPrompt(mode: AgentModeKind, agentRules: string, extraContext: string): string {
+export function buildSystemPrompt(
+	mode: AgentModeKind,
+	agentRules: string,
+	extraContext: string,
+	tools: readonly SelectedToolPrompt[] = [],
+): string {
 	const parts = [
 		'You are Integrity AI, a local-first coding assistant built into Integrity IDE.',
 		modeSystemPrompt(mode),
-		TOOL_DECISION_GUIDE,
+		toolTurnInstructions(tools),
 		'Be concise. Use markdown code fences with language tags when showing code.',
 	];
 	if (agentRules.trim()) {

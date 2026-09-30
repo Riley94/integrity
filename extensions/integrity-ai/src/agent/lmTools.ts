@@ -17,6 +17,8 @@ import {
 	type PatchHunk,
 } from './pathPolicy';
 import { IntegrityToolName } from './toolNames';
+import { beginCancellation, rankChunksForContext } from '../jev/forks';
+import { isAbortError } from '../jev/jevClient';
 
 export interface CodebaseSearchIndex {
 	search(query: string, topK?: number): Promise<Array<{ path: string; content: string; startLine: number; endLine: number }>>;
@@ -235,19 +237,7 @@ class CreateFileTool implements vscode.LanguageModelTool<{ path: string; content
 		}
 
 		const content = options.input?.content ?? '';
-		const requireApproval = vscode.workspace.getConfiguration('integrity.ai').get<boolean>('agent.requireEditApproval', true);
-		if (requireApproval) {
-			const approved = await vscode.window.showInformationMessage(
-				`Create/overwrite file ${relative}?`,
-				{ modal: true },
-				'Apply',
-				'Cancel',
-			);
-			if (approved !== 'Apply') {
-				return textResult('Create cancelled by user.');
-			}
-		}
-
+		// Confirmation is owned by the native chat loop so Jev cannot skip the approval floor.
 		const edit = new vscode.WorkspaceEdit();
 		edit.createFile(uri, { overwrite, contents: Buffer.from(content) });
 		const ok = await vscode.workspace.applyEdit(edit);
@@ -287,27 +277,7 @@ class ReplaceStringTool implements vscode.LanguageModelTool<{ path: string; oldT
 			return textResult(result.error);
 		}
 
-		const requireApproval = vscode.workspace.getConfiguration('integrity.ai').get<boolean>('agent.requireEditApproval', true);
-		if (requireApproval) {
-			const doc = await vscode.workspace.openTextDocument(uri);
-			const fullRange = new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length));
-			const edit = new vscode.WorkspaceEdit();
-			edit.replace(uri, fullRange, result.updated);
-
-			// Show a quick confirm; edits still go through WorkspaceEdit so they participate in undo.
-			const approved = await vscode.window.showInformationMessage(
-				`Apply unique replace in ${relative}?`,
-				{ modal: true },
-				'Apply',
-				'Cancel',
-			);
-			if (approved !== 'Apply') {
-				return textResult('Edit cancelled by user.');
-			}
-			const ok = await vscode.workspace.applyEdit(edit);
-			return textResult(ok ? `Updated ${relative}` : `Failed to update ${relative}`);
-		}
-
+		// Confirmation is owned by the native chat loop so Jev cannot skip the approval floor.
 		const doc = await vscode.workspace.openTextDocument(uri);
 		const fullRange = new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length));
 		const edit = new vscode.WorkspaceEdit();
@@ -363,20 +333,7 @@ class ApplyPatchTool implements vscode.LanguageModelTool<{ path: string; hunks?:
 			return textResult(result.error);
 		}
 
-		const requireApproval = vscode.workspace.getConfiguration('integrity.ai').get<boolean>('agent.requireEditApproval', true);
-		const actionLabel = result.created ? `Create file ${relative}?` : `Apply patch to ${relative}?`;
-		if (requireApproval) {
-			const approved = await vscode.window.showInformationMessage(
-				actionLabel,
-				{ modal: true },
-				'Apply',
-				'Cancel',
-			);
-			if (approved !== 'Apply') {
-				return textResult('Patch cancelled by user.');
-			}
-		}
-
+		// Confirmation is owned by the native chat loop so Jev cannot skip the approval floor.
 		const edit = new vscode.WorkspaceEdit();
 		if (result.created) {
 			edit.createFile(uri, { overwrite: false, contents: Buffer.from(result.updated) });
@@ -454,6 +411,27 @@ class FileSearchTool implements vscode.LanguageModelTool<{ glob: string; maxResu
 	}
 }
 
+/**
+ * Rank search hits with Jev. A failed decision returns every hit because this tool is a read.
+ */
+async function rankSearchHits(
+	query: string,
+	hits: Array<{ path: string; content: string; startLine: number; endLine: number }>,
+	token: vscode.CancellationToken,
+): Promise<Array<{ path: string; content: string; startLine: number; endLine: number }>> {
+	const linked = beginCancellation(token);
+	try {
+		return await rankChunksForContext(query, hits, 'keep-all', linked.signal);
+	} catch (err) {
+		if (isAbortError(err) || token.isCancellationRequested) {
+			throw err;
+		}
+		return [...hits];
+	} finally {
+		linked.end();
+	}
+}
+
 class CodebaseSearchTool implements vscode.LanguageModelTool<{ query: string }> {
 	constructor(private readonly index: CodebaseSearchIndex) { }
 
@@ -469,7 +447,11 @@ class CodebaseSearchTool implements vscode.LanguageModelTool<{ query: string }> 
 		if (!hits.length) {
 			return textResult('No results.');
 		}
-		return textResult(hits.map(h =>
+		const ranked = await rankSearchHits(query, hits, _token);
+		if (!ranked.length) {
+			return textResult('No relevant results.');
+		}
+		return textResult(ranked.map(h =>
 			`${h.path}:${h.startLine}-${h.endLine}\n${h.content}`
 		).join('\n\n---\n\n').slice(0, 30_000));
 	}

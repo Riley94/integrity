@@ -29,7 +29,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 	registerLanguageModelProvider(context, router);
 	registerOllamaModelInstallPrompt(context);
 	registerIntegrityTools(context, index);
-	registerChatParticipant(context);
+	registerChatParticipant(context, index);
 
 	chatProvider = new ChatViewProvider(context, router, history, index, agent);
 
