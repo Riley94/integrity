@@ -457,13 +457,12 @@ export function blockedMutatingToolMessage(toolName: string): string {
 }
 
 export function buildCompletionRequest(task: string, assistantText: string): PreparedJevCall {
-	const choice: ChoiceQuestion = {
-		type: 'choice',
-		instructions: 'Is this coding turn complete? Judge the objective against the assistant reply. Do not treat an unverified claim as done.',
+	const question: NoulQuestion = {
+		type: 'noul',
+		instructions: 'Is the task complete?',
 		criteria: {
-			complete: 'The task is done and the reply is sufficient',
-			verify_more: 'More verification is needed before reporting success',
-			incomplete: 'The task is not finished',
+			true: 'The task is complete',
+			false: 'The task is incomplete',
 		},
 	};
 	return {
@@ -472,7 +471,7 @@ export function buildCompletionRequest(task: string, assistantText: string): Pre
 			assistantText: clip(assistantText, 8000),
 		},
 		questions: {
-			[COMPLETION_QUESTION]: choice,
+			[COMPLETION_QUESTION]: question,
 		},
 	};
 }
@@ -484,7 +483,7 @@ export interface CompletionTrace {
 }
 
 /**
- * Explain Jev's completion answer. The text includes the raw choice even when the turn continues.
+ * Explain Jev's completion answer. The text includes the Noul even when the turn continues.
  */
 export function explainCompletion(args: {
 	answer: JevAnswer | undefined;
@@ -494,17 +493,20 @@ export function explainCompletion(args: {
 }): CompletionTrace {
 	const decision = interpretCompletion(args);
 	const lines = ['Jev completion'];
-	if (args.answer?.type === 'choice') {
-		lines.push(`choice: ${args.answer.choice}`);
-		lines.push(`confidence: ${formatScore(args.answer.confidence)}`);
+	if (args.answer?.type === 'noul') {
+		lines.push(`noul: ${formatScore(args.answer.noul)}`);
 		lines.push(`threshold: ${formatScore(args.completionConfidence)}`);
-		lines.push(`probabilities: ${formatProbabilities(args.answer.probabilities, ['complete', 'verify_more', 'incomplete'])}`);
+		lines.push(`status: ${completionStatus(args.answer.noul, args.completionConfidence)}`);
 	}
 	lines.push(`decision: ${completionDecisionLabel(decision)}`);
 	if (decision.message) {
 		lines.push(`message: ${decision.message}`);
 	}
 	return { decision, text: lines.join('\n') };
+}
+
+function completionStatus(noul: number, threshold: number): 'complete' | 'incomplete' {
+	return noul >= threshold ? 'complete' : 'incomplete';
 }
 
 function completionDecisionLabel(decision: CompletionDecision): string {
@@ -518,7 +520,8 @@ function completionDecisionLabel(decision: CompletionDecision): string {
 }
 
 /**
- * Exit only on a confident `complete`. The first missing answer continues once; the next missing answer stops.
+ * Exit when the completion Noul is at or above the threshold.
+ * The first missing answer continues once; the next missing answer stops.
  */
 export function interpretCompletion(args: {
 	answer: JevAnswer | undefined;
@@ -526,7 +529,7 @@ export function interpretCompletion(args: {
 	completionConfidence: number;
 	priorUnavailable: boolean;
 }): CompletionDecision {
-	if (args.unavailable || !args.answer || args.answer.type !== 'choice') {
+	if (args.unavailable || !args.answer || args.answer.type !== 'noul') {
 		if (args.priorUnavailable) {
 			return {
 				action: 'stop',
@@ -541,17 +544,13 @@ export function interpretCompletion(args: {
 		};
 	}
 
-	const choice = args.answer.choice;
-	if (choice === 'complete' && args.answer.confidence >= args.completionConfidence) {
+	if (args.answer.noul >= args.completionConfidence) {
 		return { action: 'exit', unavailable: false };
 	}
 
-	const reason = choice === 'complete'
-		? 'complete with low confidence'
-		: choice;
 	return {
 		action: 'continue',
-		message: `Jev marked this turn as ${reason}. Continue the task. Do not repeat the previous summary.`,
+		message: 'Jev marked this turn as incomplete. Continue the task. Do not repeat the previous summary.',
 		unavailable: false,
 	};
 }

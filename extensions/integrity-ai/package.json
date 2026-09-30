@@ -121,7 +121,7 @@
           "default": 0.6,
           "minimum": 0,
           "maximum": 1,
-          "description": "Minimum Choice confidence required to treat a turn as complete"
+          "description": "Noul at or above this value treats the turn as complete"
         },
         "integrity.ai.jev.toolSurfaceConfidence": {
           "type": "number",

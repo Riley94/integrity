@@ -488,32 +488,32 @@ describe('interpretApproval', () => {
 });
 
 describe('explainCompletion', () => {
-	it('records a confident complete as an exit', () => {
+	it('records a complete Noul as an exit', () => {
 		const trace = explainCompletion({
-			answer: choice('complete', 0.82),
+			answer: noul(0.82),
 			unavailable: false,
 			completionConfidence: 0.6,
 			priorUnavailable: false,
 		});
 		assert.equal(trace.decision.action, 'exit');
-		assert.match(trace.text, /choice: complete/);
-		assert.match(trace.text, /confidence: 0.82/);
+		assert.match(trace.text, /noul: 0.82/);
 		assert.match(trace.text, /threshold: 0.60/);
+		assert.match(trace.text, /status: complete/);
 		assert.match(trace.text, /decision: exit/);
 	});
 
-	it('records a low-confidence complete as continue, with the raw choice', () => {
+	it('records an incomplete Noul as continue', () => {
 		const trace = explainCompletion({
-			answer: choice('complete', 0.59),
+			answer: noul(0.59),
 			unavailable: false,
 			completionConfidence: 0.6,
 			priorUnavailable: false,
 		});
 		assert.equal(trace.decision.action, 'continue');
-		assert.match(trace.text, /choice: complete/);
-		assert.match(trace.text, /confidence: 0.59/);
+		assert.match(trace.text, /noul: 0.59/);
+		assert.match(trace.text, /status: incomplete/);
 		assert.match(trace.text, /decision: continue/);
-		assert.match(trace.text, /low confidence/);
+		assert.match(trace.text, /incomplete/);
 	});
 
 	it('says when Jev did not answer', () => {
@@ -525,13 +525,13 @@ describe('explainCompletion', () => {
 		});
 		assert.equal(trace.decision.action, 'continue');
 		assert.match(trace.text, /decision: continue \(Jev did not answer\)/);
-		assert.equal(trace.text.includes('choice:'), false);
+		assert.equal(trace.text.includes('status:'), false);
 	});
 
-	it('prints the completion state and questions ahead of the reply', () => {
+	it('prints the completion state and the Noul question ahead of the reply', () => {
 		const request = buildCompletionRequest('fix the test', 'done');
 		const trace = explainCompletion({
-			answer: choice('verify_more', 0.9),
+			answer: noul(0.2),
 			unavailable: false,
 			completionConfidence: 0.6,
 			priorUnavailable: false,
@@ -539,45 +539,45 @@ describe('explainCompletion', () => {
 		const text = formatJevDebug(request, trace.text);
 		assert.match(text, /"task": "fix the test"/);
 		assert.match(text, /"assistantText": "done"/);
-		assert.match(text, /"status"/);
-		assert.match(text, /choice: verify_more/);
+		assert.match(text, /"type": "noul"/);
+		assert.match(text, /Is the task complete\?/);
+		assert.match(text, /status: incomplete/);
 		assert.ok(text.endsWith('\n\n' + trace.text));
 	});
 });
 
 describe('interpretCompletion', () => {
-	it('exits only on a confident complete', () => {
+	it('exits when the Noul is at or above the threshold', () => {
 		assert.deepEqual(interpretCompletion({
-			answer: choice('complete', 0.6),
+			answer: noul(0.6),
 			unavailable: false,
 			completionConfidence: 0.6,
 			priorUnavailable: false,
 		}), { action: 'exit', unavailable: false });
 	});
 
-	it('continues when complete is below the confidence threshold', () => {
+	it('continues when the Noul is below the threshold', () => {
 		const decision = interpretCompletion({
-			answer: choice('complete', 0.59),
+			answer: noul(0.59),
 			unavailable: false,
 			completionConfidence: 0.6,
 			priorUnavailable: false,
 		});
 		assert.equal(decision.action, 'continue');
 		assert.equal(decision.unavailable, false);
-		assert.match(decision.message ?? '', /low confidence/);
+		assert.match(decision.message ?? '', /incomplete/);
 	});
 
-	it('continues for verify_more and incomplete', () => {
-		for (const status of ['verify_more', 'incomplete']) {
-			const decision = interpretCompletion({
-				answer: choice(status, 0.99),
-				unavailable: false,
-				completionConfidence: 0.6,
-				priorUnavailable: false,
-			});
-			assert.equal(decision.action, 'continue');
-			assert.match(decision.message ?? '', new RegExp(status));
-		}
+	it('treats a choice answer as a missing completion score', () => {
+		const decision = interpretCompletion({
+			answer: choice('complete', 0.99),
+			unavailable: false,
+			completionConfidence: 0.6,
+			priorUnavailable: false,
+		});
+		assert.equal(decision.action, 'continue');
+		assert.equal(decision.unavailable, true);
+		assert.equal(decision.message, COMPLETION_UNVERIFIED_MESSAGE);
 	});
 
 	it('continues once when Jev does not answer, then stops', () => {
