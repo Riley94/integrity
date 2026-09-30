@@ -5,7 +5,7 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { inferModeKind, isToolAllowedInMode, IntegrityToolName } from '../toolNames';
+import { inferModeKind, isToolAllowedInMode, selectToolsForJev, IntegrityToolName } from '../toolNames';
 
 describe('inferModeKind', () => {
 	it('detects ask/edit/agent', () => {
@@ -29,5 +29,65 @@ describe('isToolAllowedInMode', () => {
 		assert.equal(isToolAllowedInMode(IntegrityToolName.ApplyPatch, 'ask'), false);
 		assert.equal(isToolAllowedInMode(IntegrityToolName.ApplyPatch, 'edit'), true);
 		assert.equal(isToolAllowedInMode(IntegrityToolName.ApplyPatch, 'agent'), true);
+	});
+});
+
+describe('selectToolsForJev', () => {
+	const read = { name: IntegrityToolName.ReadFile };
+	const create = { name: IntegrityToolName.CreateFile };
+	const replace = { name: IntegrityToolName.ReplaceString };
+	const patch = { name: IntegrityToolName.ApplyPatch };
+	const terminal = { name: 'run_in_terminal' };
+	const registered = [read, create, replace, patch, terminal];
+
+	function names(tools: readonly { name: string }[]): string[] {
+		return tools.map(tool => tool.name);
+	}
+
+	it('offers file tools the agent request omitted', () => {
+		const request = new Map([[terminal, true]]);
+		assert.deepEqual(names(selectToolsForJev('agent', request, registered)), [
+			'run_in_terminal',
+			IntegrityToolName.ReadFile,
+			IntegrityToolName.CreateFile,
+			IntegrityToolName.ReplaceString,
+			IntegrityToolName.ApplyPatch,
+		]);
+	});
+
+	it('keeps file tools out of ask mode', () => {
+		const request = new Map([[read, true]]);
+		assert.deepEqual(names(selectToolsForJev('ask', request, registered)), [
+			IntegrityToolName.ReadFile,
+		]);
+	});
+
+	it('does not put back a file tool the request disabled', () => {
+		const request = new Map<typeof patch, boolean>([[patch, false], [terminal, true]]);
+		assert.deepEqual(names(selectToolsForJev('agent', request, registered)), [
+			'run_in_terminal',
+			IntegrityToolName.ReadFile,
+			IntegrityToolName.CreateFile,
+			IntegrityToolName.ReplaceString,
+		]);
+	});
+
+	it('does not add workbench tools the request left out', () => {
+		const request = new Map([[read, true]]);
+		assert.deepEqual(names(selectToolsForJev('agent', request, registered)), [
+			IntegrityToolName.ReadFile,
+			IntegrityToolName.CreateFile,
+			IntegrityToolName.ReplaceString,
+			IntegrityToolName.ApplyPatch,
+		]);
+	});
+
+	it('uses every mode-allowed registered tool when the request has no tool map', () => {
+		assert.deepEqual(names(selectToolsForJev('edit', undefined, registered)), [
+			IntegrityToolName.ReadFile,
+			IntegrityToolName.CreateFile,
+			IntegrityToolName.ReplaceString,
+			IntegrityToolName.ApplyPatch,
+		]);
 	});
 });

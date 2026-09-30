@@ -8,7 +8,7 @@ import { buildSystemPrompt, type SelectedToolPrompt } from './agentPrompt';
 import { rejectionForMisroutedToolCall } from './browserToolGuard';
 import { loadAgentRules, type CodebaseSearchIndex } from './lmTools';
 import { extractPathFromInput } from './pathPolicy';
-import { inferModeKind, IntegrityToolName, isToolAllowedInMode, type AgentModeKind } from './toolNames';
+import { inferModeKind, IntegrityToolName, selectToolsForJev, type AgentModeKind } from './toolNames';
 import { parseModelId } from '../providers/modelId';
 import { ensureOllamaModelReady, isOllamaModelReady, ollamaModelNotReadyMessage } from '../ollama/ensureOllamaModel';
 import {
@@ -41,38 +41,12 @@ function collectEnabledTools(
 	request: vscode.ChatRequest,
 	mode: AgentModeKind,
 ): vscode.LanguageModelChatTool[] {
-	const tools: vscode.LanguageModelChatTool[] = [];
 	const requestTools = (request as vscode.ChatRequest & { tools?: Map<vscode.LanguageModelToolInformation, boolean> }).tools;
-
-	if (requestTools) {
-		for (const [info, enabled] of requestTools) {
-			if (!enabled) {
-				continue;
-			}
-			if (!isToolAllowedInMode(info.name, mode)) {
-				continue;
-			}
-			tools.push({
-				name: info.name,
-				description: info.description,
-				inputSchema: info.inputSchema,
-			});
-		}
-		return tools;
-	}
-
-	// Fallback: all registered tools filtered by mode.
-	for (const info of vscode.lm.tools) {
-		if (!isToolAllowedInMode(info.name, mode)) {
-			continue;
-		}
-		tools.push({
-			name: info.name,
-			description: info.description,
-			inputSchema: info.inputSchema,
-		});
-	}
-	return tools;
+	return selectToolsForJev(mode, requestTools, [...vscode.lm.tools]).map(info => ({
+		name: info.name,
+		description: info.description,
+		inputSchema: info.inputSchema,
+	}));
 }
 
 function historyToMessages(context: vscode.ChatContext): vscode.LanguageModelChatMessage[] {
