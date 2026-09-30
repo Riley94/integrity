@@ -17,18 +17,29 @@ describe('modeSystemPrompt', () => {
 
 describe('toolTurnInstructions', () => {
 	it('names only the selected tool', () => {
-		const text = toolTurnInstructions({
+		const text = toolTurnInstructions([{
 			name: 'integrity_read_file',
 			description: 'Read a workspace file.',
-		});
+		}]);
 		assert.match(text, /Call only integrity_read_file/);
 		assert.match(text, /Read a workspace file/);
 		assert.doesNotMatch(text, /vscode_askQuestions/);
 		assert.doesNotMatch(text, /integrity_apply_patch/);
 	});
 
+	it('names every selected tool and no others', () => {
+		const text = toolTurnInstructions([
+			{ name: 'integrity_create_file', description: 'Create a file.' },
+			{ name: 'integrity_apply_patch', description: 'Apply a patch.' },
+		]);
+		assert.match(text, /Call only integrity_create_file, integrity_apply_patch/);
+		assert.match(text, /Create a file/);
+		assert.match(text, /Apply a patch/);
+		assert.doesNotMatch(text, /integrity_read_file/);
+	});
+
 	it('withholds every tool when Jev selected none', () => {
-		const text = toolTurnInstructions(undefined);
+		const text = toolTurnInstructions([]);
 		assert.match(text, /no tools/);
 		assert.match(text, /Do not call tools/);
 		assert.doesNotMatch(text, /integrity_/);
@@ -37,13 +48,23 @@ describe('toolTurnInstructions', () => {
 
 describe('buildSystemPrompt', () => {
 	it('includes only the selected tool', () => {
-		const prompt = buildSystemPrompt('agent', '', '', {
+		const prompt = buildSystemPrompt('agent', '', '', [{
 			name: 'integrity_read_file',
 			description: 'Read a workspace file.',
-		});
+		}]);
 		assert.match(prompt, /integrity_read_file/);
 		assert.doesNotMatch(prompt, /vscode_askQuestions/);
 		assert.doesNotMatch(prompt, /run_in_terminal/);
+	});
+
+	it('includes every selected tool', () => {
+		const prompt = buildSystemPrompt('agent', '', '', [
+			{ name: 'integrity_create_file', description: 'Create a file.' },
+			{ name: 'integrity_apply_patch', description: 'Apply a patch.' },
+		]);
+		assert.match(prompt, /integrity_create_file/);
+		assert.match(prompt, /integrity_apply_patch/);
+		assert.doesNotMatch(prompt, /integrity_read_file/);
 	});
 
 	it('tells a text-only turn not to call tools', () => {

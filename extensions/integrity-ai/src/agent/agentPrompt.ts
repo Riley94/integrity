@@ -26,32 +26,41 @@ export interface SelectedToolPrompt {
 }
 
 /**
- * Instructions for the single tool Jev selected, or text-only when Jev selected none.
+ * Instructions for the tools Jev kept, or text-only when Jev kept none.
  * Does not name any other tool.
  */
-export function toolTurnInstructions(tool: SelectedToolPrompt | undefined): string {
-	if (!tool) {
+export function toolTurnInstructions(tools: readonly SelectedToolPrompt[]): string {
+	if (!tools.length) {
 		return 'This turn has no tools. Answer in text. Do not call tools.';
 	}
-	const description = tool.description.trim();
-	const detail = description ? ` ${description}` : '';
-	return `Tool for this turn: ${tool.name}.${detail} Call only ${tool.name}. Do not call any other tool.`;
+	if (tools.length === 1) {
+		const tool = tools[0];
+		const description = tool.description.trim();
+		const detail = description ? ` ${description}` : '';
+		return `Tool for this turn: ${tool.name}.${detail} Call only ${tool.name}. Do not call any other tool.`;
+	}
+	const listed = tools.map(tool => {
+		const description = tool.description.trim();
+		return description ? `${tool.name}. ${description}` : tool.name;
+	}).join(' ');
+	const names = tools.map(tool => tool.name).join(', ');
+	return `Tools for this turn: ${listed} Call only ${names}. Do not call any other tool.`;
 }
 
 /**
  * Build the Integrity chat participant system prompt.
- * `tool` is the only tool the writer may see. Omit it for a text-only turn.
+ * `tools` are the only tools the writer may see. Omit them for a text-only turn.
  */
 export function buildSystemPrompt(
 	mode: AgentModeKind,
 	agentRules: string,
 	extraContext: string,
-	tool?: SelectedToolPrompt,
+	tools: readonly SelectedToolPrompt[] = [],
 ): string {
 	const parts = [
 		'You are Integrity AI, a local-first coding assistant built into Integrity IDE.',
 		modeSystemPrompt(mode),
-		toolTurnInstructions(tool),
+		toolTurnInstructions(tools),
 		'Be concise. Use markdown code fences with language tags when showing code.',
 	];
 	if (agentRules.trim()) {

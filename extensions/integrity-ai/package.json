@@ -128,12 +128,12 @@
           "default": 0.5,
           "minimum": 0,
           "maximum": 1,
-          "description": "Choice confidence at or above this value selects the one tool the writer may call"
+          "description": "Noul at or above this value keeps a tool. Every tool that passes may be called."
         },
         "integrity.ai.jev.debug": {
           "type": "boolean",
           "default": false,
-          "description": "Development flag. Print Jev state, questions, and replies for tool choice and completion checks in chat"
+          "description": "Development flag. Print Jev state, questions, and replies for tool selection and completion checks in chat"
         },
         "integrity.ai.inlineCompletions.enabled": {
           "type": "boolean",

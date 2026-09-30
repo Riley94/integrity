@@ -145,19 +145,20 @@ export async function runChatAgentLoop(
 	const extraContext = [referencesContext(request), retrieved].filter(part => part.trim()).join('\n\n');
 
 	let tools = collectEnabledTools(request, mode);
-	let selectedTool: SelectedToolPrompt | undefined;
+	let selectedTools: SelectedToolPrompt[] = [];
 	if (!tools.length) {
 		printJevDebug(stream, describeSkippedToolSurface('no tools were enabled'));
 	} else {
 		try {
-			stream.progress('Choosing a tool with Jev…');
+			stream.progress('Choosing tools with Jev…');
 			const trace = await selectToolSurface(request.prompt, mode, tools, token);
 			printJevDebug(stream, formatJevDebug(trace.request, trace.text));
-			const match = trace.toolName ? tools.find(tool => tool.name === trace.toolName) : undefined;
-			if (match) {
-				selectedTool = { name: match.name, description: match.description };
-				tools = [match];
-				stream.progress(`Using ${match.name}…`);
+			const selectedNames = new Set(trace.toolNames);
+			const matches = tools.filter(tool => selectedNames.has(tool.name));
+			if (matches.length) {
+				selectedTools = matches.map(tool => ({ name: tool.name, description: tool.description }));
+				tools = matches;
+				stream.progress(`Using ${matches.map(tool => tool.name).join(', ')}…`);
 			} else {
 				tools = [];
 				stream.progress('Answering without tools…');
@@ -174,7 +175,7 @@ export async function runChatAgentLoop(
 			return {};
 		}
 	}
-	const system = buildSystemPrompt(mode, agentRules, extraContext, selectedTool);
+	const system = buildSystemPrompt(mode, agentRules, extraContext, selectedTools);
 	const maxSteps = vscode.workspace.getConfiguration('integrity.ai').get<number>('agent.maxSteps', DEFAULT_MAX_STEPS);
 
 	const messages: vscode.LanguageModelChatMessage[] = [
@@ -280,7 +281,7 @@ export async function runChatAgentLoop(
 			turnToolCalls.push({ name: call.name, input: call.input });
 		}
 
-		const resultParts = await settleToolCalls(toolCalls, selectedTool?.name, request, stream, token);
+		const resultParts = await settleToolCalls(toolCalls, selectedTools.map(tool => tool.name), request, stream, token);
 		if (!resultParts) {
 			return {};
 		}
@@ -292,7 +293,7 @@ export async function runChatAgentLoop(
 }
 
 /**
- * Ask Jev for the one tool on this turn. A missing answer leaves the writer with no tool.
+ * Ask Jev which tools this turn needs. A missing answer leaves the writer with no tool.
  * The returned text is the raw answer and that decision.
  */
 async function selectToolSurface(
@@ -387,7 +388,7 @@ async function completionDecision(
  */
 async function settleToolCalls(
 	toolCalls: readonly vscode.LanguageModelToolCallPart[],
-	selectedTool: string | undefined,
+	selectedTools: readonly string[],
 	request: vscode.ChatRequest,
 	stream: vscode.ChatResponseStream,
 	token: vscode.CancellationToken,
@@ -406,7 +407,7 @@ async function settleToolCalls(
 			});
 			continue;
 		}
-		const unselected = rejectionForUnselectedTool(call.name, selectedTool);
+		const unselected = rejectionForUnselectedTool(call.name, selectedTools);
 		if (unselected) {
 			slots.push({ call, text: unselected });
 			continue;

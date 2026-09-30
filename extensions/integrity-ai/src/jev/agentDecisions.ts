@@ -4,10 +4,8 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { READ_ONLY_TOOLS } from '../agent/toolNames';
-import type { ChoiceQuestion, JevAnswer, JevQuestion, JevState, NoulQuestion } from './jevClient';
+import type { JevAnswer, JevQuestion, JevState, NoulQuestion } from './jevClient';
 
-export const TOOL_SURFACE_QUESTION = 'surface';
-export const TOOL_SURFACE_NONE_QUESTION = 'none_suitable';
 export const COMPLETION_QUESTION = 'status';
 
 export const COMPLETION_UNVERIFIED_MESSAGE =
@@ -22,9 +20,6 @@ export interface JevThresholds {
 	completionConfidence: number;
 	toolSurfaceConfidence: number;
 }
-
-/** Choice id for a text-only turn. Not a real tool name. */
-export const TOOL_REPLY_CHOICE = 'reply';
 
 export interface ToolSurfaceTool {
 	name: string;
@@ -91,86 +86,104 @@ export function approvalQuestionId(callId: string, index: number): string {
 	return `${index}:${callId}`;
 }
 
-/**
- * Options Jev may choose: text-only, then each real tool. An empty catalog offers nothing.
- * A tool literally named {@link TOOL_REPLY_CHOICE} is omitted so it cannot collide with text-only.
- */
-export function offeredToolChoices(toolNames: readonly string[]): string[] {
-	if (!toolNames.length) {
-		return [];
-	}
-	return [TOOL_REPLY_CHOICE, ...toolNames.filter(name => name !== TOOL_REPLY_CHOICE)];
+/** Question id for one offered tool. The id is the tool name. */
+export function toolSurfaceQuestionId(toolName: string): string {
+	return toolName;
 }
 
 /**
- * Choice of exactly one tool, or reply for text only, plus a Noul for "none of these".
- * Returns undefined when there is no tool to choose.
+ * Tool names Jev may score. Blank names and duplicates are dropped.
+ * An empty catalog offers nothing.
+ */
+export function offeredToolChoices(toolNames: readonly string[]): string[] {
+	const seen = new Set<string>();
+	const offered: string[] = [];
+	for (const name of toolNames) {
+		if (!name || seen.has(name)) {
+			continue;
+		}
+		seen.add(name);
+		offered.push(name);
+	}
+	return offered;
+}
+
+/**
+ * One Noul per offered tool, in a single request.
+ * Returns undefined when there is no tool to score.
  */
 export function buildToolSurfaceRequest(
 	prompt: string,
 	mode: string,
 	tools: readonly ToolSurfaceTool[],
 ): PreparedJevCall | undefined {
-	const selectable = tools.filter(tool => tool.name !== TOOL_REPLY_CHOICE);
-	const offered = offeredToolChoices(selectable.map(tool => tool.name));
+	const offered = offeredToolChoices(tools.map(tool => tool.name));
 	if (!offered.length) {
 		return undefined;
 	}
-	const criteria: Record<string, string> = {
-		[TOOL_REPLY_CHOICE]: 'Answer in text. Do not call a tool.',
-	};
-	for (const tool of selectable) {
-		criteria[tool.name] = clip(tool.description, 400) || tool.name;
+	const byName = new Map<string, ToolSurfaceTool>();
+	for (const tool of tools) {
+		if (!byName.has(tool.name)) {
+			byName.set(tool.name, tool);
+		}
 	}
-	const choice: ChoiceQuestion = {
-		type: 'choice',
-		instructions: 'Which single option should the writer use for this turn? Choose reply when the task can be answered without a tool. Otherwise choose the one tool that should be called. The writer will not be allowed to call any other tool.',
-		criteria,
-	};
-	const noneSuitable: NoulQuestion = {
-		type: 'noul',
-		instructions: 'Is none of these options suitable for this task?',
-		criteria: {
-			true: 'Neither a text answer nor any listed tool should be used',
-			false: 'Reply or one listed tool is suitable',
-		},
-	};
+	const questions: Record<string, JevQuestion> = {};
+	const listed: { name: string; description: string }[] = [];
+	for (const name of offered) {
+		const tool = byName.get(name);
+		if (!tool) {
+			continue;
+		}
+		questions[toolSurfaceQuestionId(name)] = {
+			type: 'noul',
+			instructions: `Is ${name} required to complete the task?`,
+			criteria: {
+				true: 'This tool is needed to complete the task',
+				false: 'This tool is not needed to complete the task',
+			},
+		};
+		listed.push({
+			name,
+			description: clip(tool.description, 400),
+		});
+	}
 	return {
 		state: {
 			task: clip(prompt, 8000),
 			mode,
-			tools: selectable.map(tool => ({
-				name: tool.name,
-				description: clip(tool.description, 400),
-			})),
+			tools: listed,
 		},
-		questions: {
-			[TOOL_SURFACE_QUESTION]: choice,
-			[TOOL_SURFACE_NONE_QUESTION]: noneSuitable,
-		},
+		questions,
 	};
 }
 
 /**
- * The one tool the writer may call, or undefined for a text-only turn.
- * Reply, a missing answer, low confidence, and an unknown id are all text-only.
+ * Every offered tool whose Noul is at or above the threshold.
+ * A missing answer, a non-Noul, or a score under the threshold withholds that tool.
+ * An empty list is a text-only turn.
  */
 export function interpretToolSurface(args: {
 	answers: Record<string, JevAnswer> | undefined;
 	unavailable: boolean;
 	offered: readonly string[];
 	toolSurfaceConfidence: number;
-}): string | undefined {
-	const choice = selectedToolChoice(args);
-	if (!choice || choice === TOOL_REPLY_CHOICE) {
-		return undefined;
+}): string[] {
+	if (args.unavailable || !args.answers) {
+		return [];
 	}
-	return choice;
+	const selected: string[] = [];
+	for (const name of args.offered) {
+		const answer = args.answers[toolSurfaceQuestionId(name)];
+		if (answer?.type === 'noul' && answer.noul >= args.toolSurfaceConfidence) {
+			selected.push(name);
+		}
+	}
+	return selected;
 }
 
-/** Selected tool, or undefined when the writer must answer in text. */
+/** Tools the writer may call. An empty list means answer in text. */
 export interface ToolSurfaceTrace {
-	toolName: string | undefined;
+	toolNames: readonly string[];
 	/** Reply explanation. The chat prints this only when `integrity.ai.jev.debug` is on. */
 	text: string;
 	/** State and questions sent to Jev, when a request was built. */
@@ -178,8 +191,8 @@ export interface ToolSurfaceTrace {
 }
 
 /**
- * Explain Jev's single-tool choice. The text includes the raw answer even when the turn stays text-only.
- * `toolName` matches {@link interpretToolSurface}.
+ * Explain which tools cleared the threshold. The text includes each Noul even when the turn stays text-only.
+ * `toolNames` matches {@link interpretToolSurface}.
  */
 export function explainToolSurface(args: {
 	answers: Record<string, JevAnswer> | undefined;
@@ -190,28 +203,24 @@ export function explainToolSurface(args: {
 }): ToolSurfaceTrace {
 	if (!args.offered.length) {
 		return {
-			toolName: undefined,
+			toolNames: [],
 			text: 'Jev tools\ndecision: text only (nothing to choose)',
 		};
 	}
-	const toolName = interpretToolSurface(args);
+	const selected = interpretToolSurface(args);
 	const lines = ['Jev tools', `offered: ${args.offered.join(', ')}`];
-	const choice = args.answers?.[TOOL_SURFACE_QUESTION];
-	const none = args.answers?.[TOOL_SURFACE_NONE_QUESTION];
-	if (choice?.type === 'choice') {
-		lines.push(`choice: ${choice.choice}`);
-		lines.push(`confidence: ${formatScore(choice.confidence)}`);
-		lines.push(`threshold: ${formatScore(args.toolSurfaceConfidence)}`);
-		lines.push(`probabilities: ${formatProbabilities(choice.probabilities, args.offered)}`);
+	if (args.answers) {
+		for (const name of args.offered) {
+			lines.push(`${name}: ${formatToolNoul(args.answers[toolSurfaceQuestionId(name)])}`);
+		}
 	}
-	if (none?.type === 'noul') {
-		lines.push(`none suitable: ${formatScore(none.noul)}`);
-	}
-	lines.push(`decision: ${toolChoiceDecision(args)}`);
-	lines.push(`tool: ${toolName ?? 'none'}`);
-	const withheld = args.toolNames.filter(name => name !== toolName && name !== TOOL_REPLY_CHOICE);
+	lines.push(`threshold: ${formatScore(args.toolSurfaceConfidence)}`);
+	lines.push(`decision: ${toolSurfaceDecision(args, selected)}`);
+	lines.push(`tools: ${formatNameList(selected)}`);
+	const selectedSet = new Set(selected);
+	const withheld = args.toolNames.filter(name => !selectedSet.has(name));
 	lines.push(`withheld: ${formatNameList(withheld)}`);
-	return { toolName, text: lines.join('\n') };
+	return { toolNames: selected, text: lines.join('\n') };
 }
 
 /** Shown when this turn does not ask Jev which ceiling to use. */
@@ -242,92 +251,49 @@ function debugJson(value: unknown): string {
 }
 
 /**
- * Human-readable host decision. A confident reply or a real tool name is applied.
- * Every other outcome leaves the writer with no tool.
+ * Human-readable host decision. Every tool at or above the threshold is kept.
+ * No passing tool leaves the writer with text only.
  */
-function toolChoiceDecision(args: {
+function toolSurfaceDecision(args: {
 	answers: Record<string, JevAnswer> | undefined;
 	unavailable: boolean;
-	offered: readonly string[];
 	toolSurfaceConfidence: number;
-}): string {
+}, selected: readonly string[]): string {
 	if (args.unavailable || !args.answers) {
 		return 'text only (Jev did not answer)';
 	}
-	const choice = args.answers[TOOL_SURFACE_QUESTION];
-	const none = args.answers[TOOL_SURFACE_NONE_QUESTION];
-	if (!choice || choice.type !== 'choice' || !none || none.type !== 'noul') {
-		return 'text only (answer was missing a choice or a none-suitable score)';
+	if (!selected.length) {
+		return `text only (no tool reached ${formatScore(args.toolSurfaceConfidence)})`;
 	}
-	if (choice.confidence < args.toolSurfaceConfidence) {
-		return `text only (confidence ${formatScore(choice.confidence)} is below ${formatScore(args.toolSurfaceConfidence)})`;
-	}
-	if (none.noul >= args.toolSurfaceConfidence) {
-		return `text only (none suitable ${formatScore(none.noul)} is at or above ${formatScore(args.toolSurfaceConfidence)})`;
-	}
-	if (!args.offered.includes(choice.choice)) {
-		return `text only (choice ${choice.choice} was not offered)`;
-	}
-	if (choice.choice === TOOL_REPLY_CHOICE) {
-		return 'text only (Jev chose reply)';
-	}
-	return `selected ${choice.choice}`;
+	return `selected ${selected.join(', ')}`;
 }
 
-/** The chosen id when confidence is at or above the threshold and the id was offered, including {@link TOOL_REPLY_CHOICE}. */
-function selectedToolChoice(args: {
-	answers: Record<string, JevAnswer> | undefined;
-	unavailable: boolean;
-	offered: readonly string[];
-	toolSurfaceConfidence: number;
-}): string | undefined {
-	if (args.unavailable || !args.answers) {
-		return undefined;
+function formatToolNoul(answer: JevAnswer | undefined): string {
+	if (!answer) {
+		return 'missing';
 	}
-	const choice = args.answers[TOOL_SURFACE_QUESTION];
-	const none = args.answers[TOOL_SURFACE_NONE_QUESTION];
-	if (!choice || choice.type !== 'choice' || !none || none.type !== 'noul') {
-		return undefined;
+	if (answer.type !== 'noul') {
+		return 'not a noul';
 	}
-	if (choice.confidence < args.toolSurfaceConfidence) {
-		return undefined;
-	}
-	if (none.noul >= args.toolSurfaceConfidence) {
-		return undefined;
-	}
-	if (!args.offered.includes(choice.choice)) {
-		return undefined;
-	}
-	return choice.choice;
+	return formatScore(answer.noul);
 }
 
 /**
- * Reject a model tool call that is not the single tool Jev selected.
+ * Reject a model tool call that Jev did not keep.
  * A text-only turn rejects every call.
  */
-export function rejectionForUnselectedTool(toolName: string, selectedTool: string | undefined): string | undefined {
-	if (!selectedTool) {
+export function rejectionForUnselectedTool(toolName: string, selectedTools: readonly string[]): string | undefined {
+	if (!selectedTools.length) {
 		return 'Tool error: this turn has no tool. Answer in text.';
 	}
-	if (toolName !== selectedTool) {
-		return `Tool error: this turn may only call ${selectedTool}.`;
+	if (!selectedTools.includes(toolName)) {
+		return `Tool error: this turn may only call ${selectedTools.join(', ')}.`;
 	}
 	return undefined;
 }
 
 function formatScore(value: number): string {
 	return value.toFixed(2);
-}
-
-function formatProbabilities(probabilities: Record<string, number>, offered: readonly string[]): string {
-	const keys = [
-		...offered.filter(name => Object.prototype.hasOwnProperty.call(probabilities, name)),
-		...Object.keys(probabilities).filter(name => !offered.includes(name)).sort(),
-	];
-	if (!keys.length) {
-		return 'none';
-	}
-	return keys.map(key => `${key} ${formatScore(probabilities[key])}`).join(', ');
 }
 
 function formatNameList(names: readonly string[]): string {
