@@ -15,19 +15,20 @@ import {
 	COMPLETION_BLOCKED_MESSAGE,
 	COMPLETION_UNVERIFIED_MESSAGE,
 	type ApprovalVerdict,
-	type CompletionDecision,
 	approvalQuestionId,
 	blockedMutatingToolMessage,
 	describeSkippedToolSurface,
+	explainCompletion,
 	formatRetrievedChunks,
-	formatToolSurfaceDebug,
-	interpretCompletion,
+	formatJevDebug,
+	buildCompletionRequest,
 	isMutatingTool,
 	isTerminalTool,
 	rejectionForUnselectedTool,
 } from '../jev/agentDecisions';
 import {
 	beginCancellation,
+	type CompletionCheck,
 	judgeCompletion,
 	judgeMutatingCalls,
 	rankChunksForContext,
@@ -150,7 +151,7 @@ export async function runChatAgentLoop(
 		try {
 			stream.progress('Choosing a tool with Jev…');
 			const trace = await selectToolSurface(request.prompt, mode, tools, token);
-			printJevDebug(stream, formatToolSurfaceDebug(trace.request, trace.text));
+			printJevDebug(stream, formatJevDebug(trace.request, trace.text));
 			const match = trace.toolName ? tools.find(tool => tool.name === trace.toolName) : undefined;
 			if (match) {
 				selectedTool = { name: match.name, description: match.description };
@@ -234,24 +235,30 @@ export async function runChatAgentLoop(
 				stream.markdown('_No response from model._');
 				return {};
 			}
-			let decision: CompletionDecision;
+			let checked;
 			try {
 				stream.progress('Checking completion with Jev…');
-				decision = await completionDecision(request.prompt, textOut, completionUnavailableStreak > 0, token);
+				checked = await completionDecision(request.prompt, textOut, completionUnavailableStreak > 0, token);
 			} catch (err) {
 				if (isAbortError(err) || token.isCancellationRequested) {
 					return {};
 				}
-				decision = interpretCompletion({
+				const explained = explainCompletion({
 					answer: undefined,
 					unavailable: true,
 					completionConfidence: 1,
 					priorUnavailable: completionUnavailableStreak > 0,
 				});
+				checked = {
+					...explained,
+					request: buildCompletionRequest(request.prompt, textOut),
+				};
 			}
 			if (token.isCancellationRequested) {
 				return {};
 			}
+			printJevDebug(stream, formatJevDebug(checked.request, checked.text));
+			const decision = checked.decision;
 			if (decision.action === 'exit') {
 				return {};
 			}
@@ -345,7 +352,7 @@ async function completionDecision(
 	assistantText: string,
 	priorUnavailable: boolean,
 	token: vscode.CancellationToken,
-): Promise<CompletionDecision> {
+): Promise<CompletionCheck> {
 	const linked = beginCancellation(token);
 	try {
 		return await judgeCompletion(task, assistantText, priorUnavailable, linked.signal);
@@ -353,12 +360,16 @@ async function completionDecision(
 		if (isAbortError(err) || token.isCancellationRequested) {
 			throw err;
 		}
-		return interpretCompletion({
+		const explained = explainCompletion({
 			answer: undefined,
 			unavailable: true,
 			completionConfidence: 1,
 			priorUnavailable,
 		});
+		return {
+			...explained,
+			request: buildCompletionRequest(task, assistantText),
+		};
 	} finally {
 		linked.end();
 	}

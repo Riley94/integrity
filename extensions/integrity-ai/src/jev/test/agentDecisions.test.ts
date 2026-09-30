@@ -16,11 +16,13 @@ import {
 	TOOL_SURFACE_NONE_QUESTION,
 	TOOL_SURFACE_QUESTION,
 	buildApprovalRequest,
+	buildCompletionRequest,
 	buildRetrievalRequest,
 	buildToolSurfaceRequest,
 	describeSkippedToolSurface,
+	explainCompletion,
 	explainToolSurface,
-	formatToolSurfaceDebug,
+	formatJevDebug,
 	formatRetrievedChunks,
 	interpretApproval,
 	interpretCompletion,
@@ -295,12 +297,12 @@ describe('describeSkippedToolSurface', () => {
 	});
 });
 
-describe('formatToolSurfaceDebug', () => {
+describe('formatJevDebug', () => {
 	it('prints the state and questions ahead of the reply', () => {
 		const request = buildToolSurfaceRequest('fix the test', 'agent', surfaceTools);
 		assert.ok(request);
 		const reply = 'Jev tools\ndecision: selected integrity_read_file';
-		const text = formatToolSurfaceDebug(request, reply);
+		const text = formatJevDebug(request, reply);
 		assert.match(text, /^Jev request\nstate:\n\{/);
 		assert.match(text, /"task": "fix the test"/);
 		assert.match(text, /"mode": "agent"/);
@@ -312,7 +314,7 @@ describe('formatToolSurfaceDebug', () => {
 
 	it('prints only the reply when no request was sent', () => {
 		const reply = describeSkippedToolSurface('no tools were enabled');
-		assert.equal(formatToolSurfaceDebug(undefined, reply), reply);
+		assert.equal(formatJevDebug(undefined, reply), reply);
 	});
 
 	it('is off unless the development setting is enabled', () => {
@@ -482,6 +484,64 @@ describe('interpretApproval', () => {
 		]);
 		assert.ok(request);
 		assert.ok(request.questions[approvalQuestionId('call-1', 0)]);
+	});
+});
+
+describe('explainCompletion', () => {
+	it('records a confident complete as an exit', () => {
+		const trace = explainCompletion({
+			answer: choice('complete', 0.82),
+			unavailable: false,
+			completionConfidence: 0.6,
+			priorUnavailable: false,
+		});
+		assert.equal(trace.decision.action, 'exit');
+		assert.match(trace.text, /choice: complete/);
+		assert.match(trace.text, /confidence: 0.82/);
+		assert.match(trace.text, /threshold: 0.60/);
+		assert.match(trace.text, /decision: exit/);
+	});
+
+	it('records a low-confidence complete as continue, with the raw choice', () => {
+		const trace = explainCompletion({
+			answer: choice('complete', 0.59),
+			unavailable: false,
+			completionConfidence: 0.6,
+			priorUnavailable: false,
+		});
+		assert.equal(trace.decision.action, 'continue');
+		assert.match(trace.text, /choice: complete/);
+		assert.match(trace.text, /confidence: 0.59/);
+		assert.match(trace.text, /decision: continue/);
+		assert.match(trace.text, /low confidence/);
+	});
+
+	it('says when Jev did not answer', () => {
+		const trace = explainCompletion({
+			answer: undefined,
+			unavailable: true,
+			completionConfidence: 0.6,
+			priorUnavailable: false,
+		});
+		assert.equal(trace.decision.action, 'continue');
+		assert.match(trace.text, /decision: continue \(Jev did not answer\)/);
+		assert.equal(trace.text.includes('choice:'), false);
+	});
+
+	it('prints the completion state and questions ahead of the reply', () => {
+		const request = buildCompletionRequest('fix the test', 'done');
+		const trace = explainCompletion({
+			answer: choice('verify_more', 0.9),
+			unavailable: false,
+			completionConfidence: 0.6,
+			priorUnavailable: false,
+		});
+		const text = formatJevDebug(request, trace.text);
+		assert.match(text, /"task": "fix the test"/);
+		assert.match(text, /"assistantText": "done"/);
+		assert.match(text, /"status"/);
+		assert.match(text, /choice: verify_more/);
+		assert.ok(text.endsWith('\n\n' + trace.text));
 	});
 });
 

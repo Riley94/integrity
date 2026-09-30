@@ -214,10 +214,10 @@ export function describeSkippedToolSurface(reason: string): string {
 }
 
 /**
- * Chat dump of one tool-surface call: the state and questions that were sent, then the reply.
+ * Chat dump of one Jev call: the state and questions that were sent, then the reply.
  * A skipped call has no request, so only the reply is included.
  */
-export function formatToolSurfaceDebug(request: PreparedJevCall | undefined, reply: string): string {
+export function formatJevDebug(request: PreparedJevCall | undefined, reply: string): string {
 	if (!request) {
 		return reply;
 	}
@@ -475,6 +475,46 @@ export function buildCompletionRequest(task: string, assistantText: string): Pre
 			[COMPLETION_QUESTION]: choice,
 		},
 	};
+}
+
+/** Raw completion answer plus the host decision. */
+export interface CompletionTrace {
+	decision: CompletionDecision;
+	text: string;
+}
+
+/**
+ * Explain Jev's completion answer. The text includes the raw choice even when the turn continues.
+ */
+export function explainCompletion(args: {
+	answer: JevAnswer | undefined;
+	unavailable: boolean;
+	completionConfidence: number;
+	priorUnavailable: boolean;
+}): CompletionTrace {
+	const decision = interpretCompletion(args);
+	const lines = ['Jev completion'];
+	if (args.answer?.type === 'choice') {
+		lines.push(`choice: ${args.answer.choice}`);
+		lines.push(`confidence: ${formatScore(args.answer.confidence)}`);
+		lines.push(`threshold: ${formatScore(args.completionConfidence)}`);
+		lines.push(`probabilities: ${formatProbabilities(args.answer.probabilities, ['complete', 'verify_more', 'incomplete'])}`);
+	}
+	lines.push(`decision: ${completionDecisionLabel(decision)}`);
+	if (decision.message) {
+		lines.push(`message: ${decision.message}`);
+	}
+	return { decision, text: lines.join('\n') };
+}
+
+function completionDecisionLabel(decision: CompletionDecision): string {
+	if (decision.action === 'exit') {
+		return 'exit';
+	}
+	if (decision.unavailable) {
+		return `${decision.action} (Jev did not answer)`;
+	}
+	return decision.action;
 }
 
 /**

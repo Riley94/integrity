@@ -133,7 +133,7 @@
         "integrity.ai.jev.debug": {
           "type": "boolean",
           "default": false,
-          "description": "Development flag. Print the Jev tool-surface state, questions, and reply in chat"
+          "description": "Development flag. Print Jev state, questions, and replies for tool choice and completion checks in chat"
         },
         "integrity.ai.inlineCompletions.enabled": {
           "type": "boolean",

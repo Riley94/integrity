@@ -18,9 +18,9 @@ import {
 	buildCompletionRequest,
 	buildRetrievalRequest,
 	buildToolSurfaceRequest,
+	explainCompletion,
 	explainToolSurface,
 	interpretApproval,
-	interpretCompletion,
 	interpretRetrieval,
 	offeredToolChoices,
 	type ToolSurfaceTrace,
@@ -155,25 +155,34 @@ export async function judgeMutatingCalls(
 	return verdicts;
 }
 
+/** Completion decision plus the state, questions, and reply for debug output. */
+export interface CompletionCheck {
+	decision: CompletionDecision;
+	request: PreparedJevCall;
+	text: string;
+}
+
 /**
  * Decide whether a text-only assistant reply may end the turn.
+ * `request` is the state and questions that were sent. `text` is the raw answer and that decision.
  */
 export async function judgeCompletion(
 	task: string,
 	assistantText: string,
 	priorUnavailable: boolean,
 	signal?: AbortSignal,
-): Promise<CompletionDecision> {
+): Promise<CompletionCheck> {
 	const request = buildCompletionRequest(task, assistantText);
 	const { config, thresholds } = readJevRuntime();
 	const answers = await evaluateOrUnavailable(config, request, signal);
 	const answer = answers?.[COMPLETION_QUESTION];
-	return interpretCompletion({
+	const explained = explainCompletion({
 		answer,
 		unavailable: answers === null || !answer,
 		completionConfidence: thresholds.completionConfidence,
 		priorUnavailable,
 	});
+	return { ...explained, request };
 }
 
 /**
