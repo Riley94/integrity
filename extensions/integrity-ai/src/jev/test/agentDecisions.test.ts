@@ -88,7 +88,7 @@ describe('interpretToolSurface', () => {
 		}), undefined);
 	});
 
-	it('returns no tool when confidence is not above the threshold', () => {
+	it('selects a tool when confidence equals the threshold', () => {
 		assert.equal(interpretToolSurface({
 			...base,
 			unavailable: false,
@@ -96,7 +96,7 @@ describe('interpretToolSurface', () => {
 				[TOOL_SURFACE_QUESTION]: choice('integrity_read_file', 0.6),
 				[TOOL_SURFACE_NONE_QUESTION]: noul(0.1),
 			},
-		}), undefined);
+		}), 'integrity_read_file');
 	});
 
 	it('returns no tool on low confidence', () => {
@@ -207,7 +207,7 @@ describe('explainToolSurface', () => {
 		});
 		assert.equal(trace.toolName, undefined);
 		assert.match(trace.text, /choice: integrity_read_file/);
-		assert.match(trace.text, /decision: text only \(confidence 0.59 is not above 0.60\)/);
+		assert.match(trace.text, /decision: text only \(confidence 0.59 is below 0.60\)/);
 		assert.match(trace.text, /tool: none/);
 	});
 

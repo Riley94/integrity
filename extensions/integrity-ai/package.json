@@ -128,7 +128,7 @@
           "default": 0.5,
           "minimum": 0,
           "maximum": 1,
-          "description": "Choice confidence must be greater than this value for Jev to select the one tool the writer may call"
+          "description": "Choice confidence at or above this value selects the one tool the writer may call"
         },
         "integrity.ai.jev.debug": {
           "type": "boolean",

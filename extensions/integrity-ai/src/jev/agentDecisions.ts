@@ -259,8 +259,8 @@ function toolChoiceDecision(args: {
 	if (!choice || choice.type !== 'choice' || !none || none.type !== 'noul') {
 		return 'text only (answer was missing a choice or a none-suitable score)';
 	}
-	if (choice.confidence <= args.toolSurfaceConfidence) {
-		return `text only (confidence ${formatScore(choice.confidence)} is not above ${formatScore(args.toolSurfaceConfidence)})`;
+	if (choice.confidence < args.toolSurfaceConfidence) {
+		return `text only (confidence ${formatScore(choice.confidence)} is below ${formatScore(args.toolSurfaceConfidence)})`;
 	}
 	if (none.noul >= args.toolSurfaceConfidence) {
 		return `text only (none suitable ${formatScore(none.noul)} is at or above ${formatScore(args.toolSurfaceConfidence)})`;
@@ -274,7 +274,7 @@ function toolChoiceDecision(args: {
 	return `selected ${choice.choice}`;
 }
 
-/** The chosen id when it is confident and offered, including {@link TOOL_REPLY_CHOICE}. */
+/** The chosen id when confidence is at or above the threshold and the id was offered, including {@link TOOL_REPLY_CHOICE}. */
 function selectedToolChoice(args: {
 	answers: Record<string, JevAnswer> | undefined;
 	unavailable: boolean;
@@ -289,7 +289,7 @@ function selectedToolChoice(args: {
 	if (!choice || choice.type !== 'choice' || !none || none.type !== 'noul') {
 		return undefined;
 	}
-	if (choice.confidence <= args.toolSurfaceConfidence) {
+	if (choice.confidence < args.toolSurfaceConfidence) {
 		return undefined;
 	}
 	if (none.noul >= args.toolSurfaceConfidence) {
