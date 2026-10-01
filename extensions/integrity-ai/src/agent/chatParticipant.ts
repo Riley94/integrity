@@ -6,6 +6,15 @@
 import * as vscode from 'vscode';
 import { buildSystemPrompt, type SelectedToolPrompt } from './agentPrompt';
 import { rejectionForMisroutedToolCall } from './browserToolGuard';
+import {
+	editReviewPending,
+	emptyEditReviewState,
+	holdReplyForEditReview,
+	MAX_EDIT_REVIEWS,
+	noteToolResult,
+	withReviewReadTool,
+	type EditReviewState,
+} from './editReview';
 import { loadAgentRules, type CodebaseSearchIndex } from './lmTools';
 import { extractPathFromInput } from './pathPolicy';
 import { scratchpadApprovalPreview } from './scratchpad';
@@ -138,6 +147,8 @@ export async function runChatAgentLoop(
 	const extraContext = [referencesContext(request), retrieved].filter(part => part.trim()).join('\n\n');
 
 	let tools = collectEnabledTools(request, mode);
+	// Full set this mode offered, before Jev narrows it. A review can add the read tool back from here.
+	const toolCatalog = tools;
 	let selectedTools: SelectedToolPrompt[] = [];
 	let scratchpadRequired = false;
 	if (!tools.length) {
@@ -188,6 +199,21 @@ export async function runChatAgentLoop(
 	];
 
 	let scratchpadRan = false;
+	let reviewState: EditReviewState = emptyEditReviewState();
+	const canReviewEdits = toolCatalog.some(tool => tool.name === IntegrityToolName.ReadFile);
+
+	// The system prompt names only the tools Jev kept. A review has to be allowed to call the read tool.
+	function grantReadFileForReview(): void {
+		const next = withReviewReadTool(tools, toolCatalog);
+		if (next === tools) {
+			return;
+		}
+		tools = [...next];
+		selectedTools = tools.map(tool => ({ name: tool.name, description: tool.description }));
+		messages[0] = vscode.LanguageModelChatMessage.User(
+			`[System instructions]\n${buildSystemPrompt(mode, agentRules, extraContext, selectedTools, scratchpadRequired)}`,
+		);
+	}
 
 	for (let step = 0; step < maxSteps; step++) {
 		if (token.isCancellationRequested) {
@@ -195,8 +221,9 @@ export async function runChatAgentLoop(
 		}
 
 		stream.progress(step === 0 ? 'Thinking…' : `Continuing (step ${step + 1})…`);
-		// Prose written before the scratchpad runs is not the answer, so it stays off the chat stream.
+		// Prose written before the scratchpad runs, or before changed files are reviewed, is not the answer.
 		const scratchpadPending = scratchpadRequired && !scratchpadRan;
+		const reviewPending = canReviewEdits && editReviewPending(reviewState);
 
 		let response: vscode.LanguageModelChatResponse;
 		try {
@@ -222,7 +249,7 @@ export async function runChatAgentLoop(
 				if (part instanceof vscode.LanguageModelTextPart) {
 					assistantParts.push(part);
 					textOut += part.value;
-					if (!scratchpadPending) {
+					if (!scratchpadPending && !reviewPending) {
 						stream.markdown(part.value);
 					}
 				} else if (part instanceof vscode.LanguageModelToolCallPart) {
@@ -245,12 +272,21 @@ export async function runChatAgentLoop(
 				return {};
 			}
 			const decision = holdReplyForScratchpad(scratchpadPending);
-			if (decision.action === 'exit') {
+			if (decision.action === 'continue') {
+				stream.progress('Waiting for the scratchpad before answering…');
+				messages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
+				messages.push(vscode.LanguageModelChatMessage.User(decision.message));
+				continue;
+			}
+			const review = holdReplyForEditReview(reviewState, canReviewEdits);
+			if (review.action === 'exit') {
 				return {};
 			}
-			stream.progress('Waiting for the scratchpad before answering…');
+			reviewState = review.state;
+			grantReadFileForReview();
+			stream.progress(`Reviewing changed files (${reviewState.reviews} of ${MAX_EDIT_REVIEWS})…`);
 			messages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
-			messages.push(vscode.LanguageModelChatMessage.User(decision.message));
+			messages.push(vscode.LanguageModelChatMessage.User(review.message));
 			continue;
 		}
 
@@ -259,7 +295,16 @@ export async function runChatAgentLoop(
 		}
 		messages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
 
-		const resultParts = await settleToolCalls(toolCalls, selectedTools.map(tool => tool.name), request, stream, token);
+		const resultParts = await settleToolCalls(
+			toolCalls,
+			selectedTools.map(tool => tool.name),
+			request,
+			stream,
+			token,
+			(name, input, text) => {
+				reviewState = noteToolResult(reviewState, name, input, text);
+			},
+		);
 		if (!resultParts) {
 			return {};
 		}
@@ -334,6 +379,7 @@ async function rankedPrefetch(
 /**
  * Run read-only tools immediately. Mutating tools wait for the user when that
  * tool kind's approval setting is on. Jev does not take part in this decision.
+ * @param onResult Called for each settled call, including rejections, so the turn can track writes.
  * @returns undefined when the turn was cancelled.
  */
 async function settleToolCalls(
@@ -342,6 +388,7 @@ async function settleToolCalls(
 	request: vscode.ChatRequest,
 	stream: vscode.ChatResponseStream,
 	token: vscode.CancellationToken,
+	onResult?: (name: string, input: unknown, text: string) => void,
 ): Promise<vscode.LanguageModelToolResultPart[] | undefined> {
 	const slots: Array<{ call: vscode.LanguageModelToolCallPart; text: string }> = [];
 	const { requireEditApproval, requireTerminalApproval } = readJevRuntime();
@@ -379,6 +426,10 @@ async function settleToolCalls(
 		}
 		stream.progress(`Running \`${call.name}\`…`);
 		slots.push({ call, text: await invokeNamedTool(call, request, token) });
+	}
+
+	for (const slot of slots) {
+		onResult?.(slot.call.name, slot.call.input, slot.text);
 	}
 
 	return slots.map(slot => new vscode.LanguageModelToolResultPart(
