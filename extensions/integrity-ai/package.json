@@ -90,7 +90,7 @@
         "integrity.ai.jev.apiKey": {
           "type": "string",
           "default": "",
-          "description": "Jev API key (BYOK). Required before the agent can apply mutating tools or finish a turn."
+          "description": "Jev API key (BYOK). Required for tool selection and completion checks."
         },
         "integrity.ai.jev.baseUrl": {
           "type": "string",
@@ -101,13 +101,6 @@
           "type": "string",
           "default": "jev-latest",
           "description": "Jev model name"
-        },
-        "integrity.ai.jev.approvalThreshold": {
-          "type": "number",
-          "default": 0.7,
-          "minimum": 0,
-          "maximum": 1,
-          "description": "Noul at or above this value means a mutating tool call needs human approval"
         },
         "integrity.ai.jev.retrievalThreshold": {
           "type": "number",

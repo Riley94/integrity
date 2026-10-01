@@ -24,7 +24,6 @@ export const TOOL_REPLY_CHOICE = 'reply';
 export const TOOL_SURFACE_REPLY_MARGIN = 0.05;
 
 export interface JevThresholds {
-	approvalThreshold: number;
 	retrievalThreshold: number;
 	completionConfidence: number;
 	toolSurfaceConfidence: number;
@@ -42,12 +41,6 @@ export interface RetrievalHit {
 	endLine: number;
 }
 
-export interface ProposedToolCall {
-	id: string;
-	name: string;
-	input: unknown;
-}
-
 /** A tool invocation from this turn. Completion uses it as evidence the reply may omit. */
 export interface CompletionToolCall {
 	name: string;
@@ -59,13 +52,6 @@ export interface PreparedJevCall {
 	questions: Record<string, JevQuestion>;
 }
 
-export type ApprovalAction = 'invoke' | 'prompt' | 'block';
-
-export interface ApprovalVerdict {
-	action: ApprovalAction;
-	message: string;
-}
-
 export interface CompletionDecision {
 	action: 'exit' | 'continue' | 'stop';
 	message?: string;
@@ -74,25 +60,33 @@ export interface CompletionDecision {
 }
 
 /**
- * Read-only Integrity tools skip the Jev approval gate. Every other tool is mutating.
+ * Read-only Integrity tools run without a confirmation dialog. Every other tool is mutating.
  */
 export function isMutatingTool(toolName: string): boolean {
 	return !READ_ONLY_TOOLS.has(toolName);
 }
 
 /**
- * Terminal tools use `agent.requireTerminalApproval` as their confirmation floor.
+ * Terminal tools use `agent.requireTerminalApproval`. Other mutating tools use `agent.requireEditApproval`.
  */
 export function isTerminalTool(toolName: string): boolean {
 	return /terminal/i.test(toolName);
 }
 
-export function retrievalQuestionId(index: number): string {
-	return `chunk_${index}`;
+/**
+ * Whether this mutating call waits for the user.
+ * Confirmation is the security setting for that tool kind. Jev does not score it.
+ */
+export function mutatingToolNeedsConfirmation(
+	toolName: string,
+	requireEditApproval: boolean,
+	requireTerminalApproval: boolean,
+): boolean {
+	return isTerminalTool(toolName) ? requireTerminalApproval : requireEditApproval;
 }
 
-export function approvalQuestionId(callId: string, index: number): string {
-	return `${index}:${callId}`;
+export function retrievalQuestionId(index: number): string {
+	return `chunk_${index}`;
 }
 
 /** Question id for one offered tool. The id is the tool name. */
@@ -436,65 +430,7 @@ export function formatRetrievedChunks(hits: readonly RetrievalHit[]): string {
 	return text.length > 12_000 ? text.slice(0, 12_000) : text;
 }
 
-/**
- * One Noul per mutating call: does this call need a human before it runs?
- */
-export function buildApprovalRequest(calls: readonly ProposedToolCall[]): PreparedJevCall | undefined {
-	if (!calls.length) {
-		return undefined;
-	}
-	const questions: Record<string, JevQuestion> = {};
-	const proposed = calls.map((call, index) => {
-		const id = approvalQuestionId(call.id, index);
-		questions[id] = {
-			type: 'noul',
-			instructions: `Does tool call ${id} need human approval before it runs? Consider side effects, reversibility, and scope.`,
-			criteria: {
-				true: 'A person should confirm this call before it runs',
-				false: 'The call is safe to run without an extra confirmation',
-			},
-		};
-		return {
-			id,
-			name: call.name,
-			arguments: clipJson(call.input, 4000),
-		};
-	});
-	return {
-		state: { calls: proposed },
-		questions,
-	};
-}
-
-/**
- * A missing Jev answer blocks the call. A configured approval floor cannot be skipped by a low Noul.
- */
-export function interpretApproval(args: {
-	toolName: string;
-	answer: JevAnswer | undefined;
-	unavailable: boolean;
-	approvalThreshold: number;
-	requireEditApproval: boolean;
-	requireTerminalApproval: boolean;
-}): ApprovalVerdict {
-	if (args.unavailable || !args.answer || args.answer.type !== 'noul') {
-		return {
-			action: 'block',
-			message: blockedMutatingToolMessage(args.toolName),
-		};
-	}
-	const floor = isTerminalTool(args.toolName) ? args.requireTerminalApproval : args.requireEditApproval;
-	if (floor || args.answer.noul >= args.approvalThreshold) {
-		return { action: 'prompt', message: '' };
-	}
-	return { action: 'invoke', message: '' };
-}
-
-export function blockedMutatingToolMessage(toolName: string): string {
-	return `Tool error: mutating tool ${toolName} was blocked because Jev did not answer.`;
-}
-
-/** Per-call argument cap, same as approval. */
+/** Per-call argument cap for the completion state. */
 const COMPLETION_TOOL_ARGUMENT_LIMIT = 4000;
 
 /** Whole tool-call list cap, same scale as the task and reply clips. */

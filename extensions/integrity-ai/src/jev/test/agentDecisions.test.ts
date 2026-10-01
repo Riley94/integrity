@@ -11,9 +11,6 @@ import { fileURLToPath } from 'node:url';
 import {
 	COMPLETION_BLOCKED_MESSAGE,
 	COMPLETION_UNVERIFIED_MESSAGE,
-	approvalQuestionId,
-	blockedMutatingToolMessage,
-	buildApprovalRequest,
 	buildCompletionRequest,
 	buildRetrievalRequest,
 	buildToolSurfaceRequest,
@@ -22,12 +19,12 @@ import {
 	explainToolSurface,
 	formatJevDebug,
 	formatRetrievedChunks,
-	interpretApproval,
 	interpretCompletion,
 	interpretRetrieval,
 	interpretToolSurface,
 	isMutatingTool,
 	isTerminalTool,
+	mutatingToolNeedsConfirmation,
 	offeredToolChoices,
 	rejectionForUnselectedTool,
 	TOOL_REPLY_CHOICE,
@@ -528,7 +525,7 @@ describe('interpretRetrieval', () => {
 	});
 });
 
-describe('interpretApproval', () => {
+describe('mutatingToolNeedsConfirmation', () => {
 	it('does not treat read-only tools as mutating', () => {
 		assert.equal(isMutatingTool('integrity_read_file'), false);
 		assert.equal(isMutatingTool('integrity_codebase_search'), false);
@@ -538,83 +535,22 @@ describe('interpretApproval', () => {
 		assert.equal(isTerminalTool('integrity_scratchpad'), false);
 	});
 
-	it('blocks mutating calls when Jev does not answer', () => {
-		const verdict = interpretApproval({
-			toolName: 'integrity_apply_patch',
-			answer: undefined,
-			unavailable: true,
-			approvalThreshold: 0.7,
-			requireEditApproval: false,
-			requireTerminalApproval: false,
-		});
-		assert.equal(verdict.action, 'block');
-		assert.equal(verdict.message, blockedMutatingToolMessage('integrity_apply_patch'));
+	it('asks before an edit when edit approval is required', () => {
+		assert.equal(mutatingToolNeedsConfirmation('integrity_apply_patch', true, false), true);
 	});
 
-	it('still prompts when edit approval is required even if Jev says the call is safe', () => {
-		const verdict = interpretApproval({
-			toolName: 'integrity_apply_patch',
-			answer: noul(0.1),
-			unavailable: false,
-			approvalThreshold: 0.7,
-			requireEditApproval: true,
-			requireTerminalApproval: false,
-		});
-		assert.equal(verdict.action, 'prompt');
+	it('runs an edit without a dialog when edit approval is off', () => {
+		assert.equal(mutatingToolNeedsConfirmation('integrity_create_file', false, true), false);
 	});
 
-	it('prompts a disabled edit floor only at or above the threshold', () => {
-		const shared = {
-			toolName: 'integrity_create_file',
-			unavailable: false,
-			approvalThreshold: 0.7,
-			requireEditApproval: false,
-			requireTerminalApproval: true,
-		};
-		assert.equal(interpretApproval({ ...shared, answer: noul(0.69) }).action, 'invoke');
-		assert.equal(interpretApproval({ ...shared, answer: noul(0.7) }).action, 'prompt');
+	it('uses the edit setting for the scratchpad', () => {
+		assert.equal(mutatingToolNeedsConfirmation('integrity_scratchpad', true, false), true);
+		assert.equal(mutatingToolNeedsConfirmation('integrity_scratchpad', false, true), false);
 	});
 
-	it('uses the edit approval floor for the scratchpad', () => {
-		const prompted = interpretApproval({
-			toolName: 'integrity_scratchpad',
-			answer: noul(0.1),
-			unavailable: false,
-			approvalThreshold: 0.7,
-			requireEditApproval: true,
-			requireTerminalApproval: false,
-		});
-		assert.equal(prompted.action, 'prompt');
-
-		const invoked = interpretApproval({
-			toolName: 'integrity_scratchpad',
-			answer: noul(0.1),
-			unavailable: false,
-			approvalThreshold: 0.7,
-			requireEditApproval: false,
-			requireTerminalApproval: true,
-		});
-		assert.equal(invoked.action, 'invoke');
-	});
-
-	it('uses the terminal approval floor for terminal tools', () => {
-		const verdict = interpretApproval({
-			toolName: 'run_in_terminal',
-			answer: noul(0.1),
-			unavailable: false,
-			approvalThreshold: 0.7,
-			requireEditApproval: false,
-			requireTerminalApproval: true,
-		});
-		assert.equal(verdict.action, 'prompt');
-	});
-
-	it('keys approval questions so the loop can look them up', () => {
-		const request = buildApprovalRequest([
-			{ id: 'call-1', name: 'integrity_apply_patch', input: { path: 'main.py' } },
-		]);
-		assert.ok(request);
-		assert.ok(request.questions[approvalQuestionId('call-1', 0)]);
+	it('uses the terminal setting for terminal tools', () => {
+		assert.equal(mutatingToolNeedsConfirmation('run_in_terminal', false, true), true);
+		assert.equal(mutatingToolNeedsConfirmation('run_in_terminal', true, false), false);
 	});
 });
 

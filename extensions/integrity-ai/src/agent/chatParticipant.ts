@@ -16,10 +16,7 @@ import { ensureOllamaModelReady, isOllamaModelReady, ollamaModelNotReadyMessage 
 import {
 	COMPLETION_BLOCKED_MESSAGE,
 	COMPLETION_UNVERIFIED_MESSAGE,
-	type ApprovalVerdict,
 	type CompletionToolCall,
-	approvalQuestionId,
-	blockedMutatingToolMessage,
 	describeSkippedToolSurface,
 	explainCompletion,
 	formatRetrievedChunks,
@@ -27,14 +24,15 @@ import {
 	buildCompletionRequest,
 	isMutatingTool,
 	isTerminalTool,
+	mutatingToolNeedsConfirmation,
 	rejectionForUnselectedTool,
 } from '../jev/agentDecisions';
 import {
 	beginCancellation,
 	type CompletionCheck,
 	judgeCompletion,
-	judgeMutatingCalls,
 	rankChunksForContext,
+	readJevRuntime,
 	routeToolSurface,
 } from '../jev/forks';
 import { isAbortError } from '../jev/jevClient';
@@ -407,7 +405,8 @@ async function completionDecision(
 }
 
 /**
- * Run read-only tools immediately. Mutating tools wait for one batched Jev decision.
+ * Run read-only tools immediately. Mutating tools wait for the user when that
+ * tool kind's approval setting is on. Jev does not take part in this decision.
  * @returns undefined when the turn was cancelled.
  */
 async function settleToolCalls(
@@ -418,7 +417,7 @@ async function settleToolCalls(
 	token: vscode.CancellationToken,
 ): Promise<vscode.LanguageModelToolResultPart[] | undefined> {
 	const slots: Array<{ call: vscode.LanguageModelToolCallPart; text: string }> = [];
-	const mutating: Array<{ slot: number; call: vscode.LanguageModelToolCallPart }> = [];
+	const { requireEditApproval, requireTerminalApproval } = readJevRuntime();
 
 	for (const call of toolCalls) {
 		if (token.isCancellationRequested) {
@@ -441,60 +440,18 @@ async function settleToolCalls(
 			slots.push({ call, text: rejected });
 			continue;
 		}
-		if (!isMutatingTool(call.name)) {
-			stream.progress(`Running \`${call.name}\`…`);
-			slots.push({ call, text: await invokeNamedTool(call, request, token) });
-			continue;
-		}
-		mutating.push({ slot: slots.length, call });
-		slots.push({ call, text: '' });
-	}
-
-	if (mutating.length) {
-		const linked = beginCancellation(token);
-		let verdicts = new Map<string, ApprovalVerdict>();
-		try {
-			stream.progress('Asking Jev about tool calls…');
-			verdicts = await judgeMutatingCalls(mutating.map(({ call }) => ({
-				id: call.callId,
-				name: call.name,
-				input: call.input,
-			})), linked.signal);
-		} catch (err) {
-			if (isAbortError(err) || token.isCancellationRequested) {
-				return undefined;
-			}
-		} finally {
-			linked.end();
-		}
-
-		for (let index = 0; index < mutating.length; index++) {
+		if (isMutatingTool(call.name) && mutatingToolNeedsConfirmation(call.name, requireEditApproval, requireTerminalApproval)) {
+			const approved = await confirmMutatingTool(approvalPrompt(call.name, call.input));
 			if (token.isCancellationRequested) {
 				return undefined;
 			}
-			const { slot, call } = mutating[index];
-			const verdict = verdicts.get(approvalQuestionId(call.callId, index)) ?? {
-				action: 'block' as const,
-				message: blockedMutatingToolMessage(call.name),
-			};
-			if (verdict.action === 'block') {
-				stream.progress(`Blocked \`${call.name}\` until Jev answers.`);
-				slots[slot].text = verdict.message;
+			if (!approved) {
+				slots.push({ call, text: `Tool error: ${call.name} cancelled by user.` });
 				continue;
 			}
-			if (verdict.action === 'prompt') {
-				const approved = await confirmMutatingTool(approvalPrompt(call.name, call.input));
-				if (token.isCancellationRequested) {
-					return undefined;
-				}
-				if (!approved) {
-					slots[slot].text = `Tool error: ${call.name} cancelled by user.`;
-					continue;
-				}
-			}
-			stream.progress(`Running \`${call.name}\`…`);
-			slots[slot].text = await invokeNamedTool(call, request, token);
 		}
+		stream.progress(`Running \`${call.name}\`…`);
+		slots.push({ call, text: await invokeNamedTool(call, request, token) });
 	}
 
 	return slots.map(slot => new vscode.LanguageModelToolResultPart(

@@ -5,23 +5,18 @@
 
 import * as vscode from 'vscode';
 import {
-	type ApprovalVerdict,
 	type CompletionDecision,
 	type CompletionToolCall,
 	type JevThresholds,
 	type PreparedJevCall,
-	type ProposedToolCall,
 	type RetrievalHit,
 	type ToolSurfaceTool,
 	COMPLETION_QUESTION,
-	approvalQuestionId,
-	buildApprovalRequest,
 	buildCompletionRequest,
 	buildRetrievalRequest,
 	buildToolSurfaceRequest,
 	explainCompletion,
 	explainToolSurface,
-	interpretApproval,
 	interpretRetrieval,
 	offeredToolChoices,
 	type ToolSurfaceTrace,
@@ -55,7 +50,6 @@ export function readJevRuntime(): JevRuntime {
 			model: cfg.get<string>('jev.model', 'jev-latest'),
 		},
 		thresholds: {
-			approvalThreshold: unit(cfg.get<number>('jev.approvalThreshold', 0.7), 0.7),
 			retrievalThreshold: unit(cfg.get<number>('jev.retrievalThreshold', 0.5), 0.5),
 			completionConfidence: unit(cfg.get<number>('jev.completionConfidence', 0.6), 0.6),
 			toolSurfaceConfidence: unit(cfg.get<number>('jev.toolSurfaceConfidence', 0.5), 0.5),
@@ -129,36 +123,6 @@ export async function rankChunksForContext(
 		threshold: thresholds.retrievalThreshold,
 		onUnavailable,
 	});
-}
-
-/**
- * One verdict per mutating call, keyed by {@link approvalQuestionId}.
- * An unanswered call is a block.
- */
-export async function judgeMutatingCalls(
-	calls: readonly ProposedToolCall[],
-	signal?: AbortSignal,
-): Promise<Map<string, ApprovalVerdict>> {
-	const verdicts = new Map<string, ApprovalVerdict>();
-	const request = buildApprovalRequest(calls);
-	if (!request) {
-		return verdicts;
-	}
-	const runtime = readJevRuntime();
-	const answers = await evaluateOrUnavailable(runtime.config, request, signal);
-	const unavailable = answers === null;
-	calls.forEach((call, index) => {
-		const key = approvalQuestionId(call.id, index);
-		verdicts.set(key, interpretApproval({
-			toolName: call.name,
-			answer: answers?.[key],
-			unavailable: unavailable || !answers?.[key],
-			approvalThreshold: runtime.thresholds.approvalThreshold,
-			requireEditApproval: runtime.requireEditApproval,
-			requireTerminalApproval: runtime.requireTerminalApproval,
-		}));
-	});
-	return verdicts;
 }
 
 /** Completion decision plus the state, questions, and reply for debug output. */

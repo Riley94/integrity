@@ -51,8 +51,7 @@ export function isSweBenchBenchmark(env: NodeJS.ProcessEnv = process.env): boole
 
 /**
  * Approval floors for mutating tools.
- * The smoke run clears both floors so a Jev Noul under the threshold can invoke without a modal.
- * A Noul at or above the threshold still prompts. A missing Jev answer still blocks.
+ * The smoke run clears both floors so a modal does not block the turn.
  */
 export function approvalFloors(settings: ApprovalFloorSettings, benchmark: boolean): ApprovalFloorSettings {
 	if (benchmark) {
