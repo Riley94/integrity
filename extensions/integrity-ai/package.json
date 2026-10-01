@@ -90,7 +90,7 @@
         "integrity.ai.jev.apiKey": {
           "type": "string",
           "default": "",
-          "description": "Jev API key (BYOK). Required before the agent can apply mutating tools or finish a turn."
+          "description": "Jev API key (BYOK). Required for tool selection and retrieval ranking."
         },
         "integrity.ai.jev.baseUrl": {
           "type": "string",
@@ -102,13 +102,6 @@
           "default": "jev-latest",
           "description": "Jev model name"
         },
-        "integrity.ai.jev.approvalThreshold": {
-          "type": "number",
-          "default": 0.7,
-          "minimum": 0,
-          "maximum": 1,
-          "description": "Noul at or above this value means a mutating tool call needs human approval"
-        },
         "integrity.ai.jev.retrievalThreshold": {
           "type": "number",
           "default": 0.5,
@@ -116,24 +109,17 @@
           "maximum": 1,
           "description": "Noul at or above this value keeps a retrieved chunk"
         },
-        "integrity.ai.jev.completionConfidence": {
-          "type": "number",
-          "default": 0.6,
-          "minimum": 0,
-          "maximum": 1,
-          "description": "Noul at or above this value treats the turn as complete"
-        },
         "integrity.ai.jev.toolSurfaceConfidence": {
           "type": "number",
           "default": 0.5,
           "minimum": 0,
           "maximum": 1,
-          "description": "Noul at or above this value keeps a tool. Reply at or above this value, when it is at least as high as every tool, answers in text."
+          "description": "Noul at or above this value keeps a tool. Reply at or above this value answers in text unless a tool exceeds it by more than 0.05."
         },
         "integrity.ai.jev.debug": {
           "type": "boolean",
           "default": false,
-          "description": "Development flag. Print Jev state, questions, and replies for tool selection and completion checks in chat"
+          "description": "Development flag. Print Jev state, questions, and replies for tool selection in chat"
         },
         "integrity.ai.inlineCompletions.enabled": {
           "type": "boolean",
@@ -457,6 +443,24 @@
               "description": "Alias for path"
             }
           }
+        },
+        "tags": ["integrity"]
+      },
+      {
+        "name": "integrity_scratchpad",
+        "toolReferenceName": "scratchpad",
+        "displayName": "Python Scratchpad",
+        "modelDescription": "Run a short Python 3 snippet when the answer depends on executing code, such as computing a value or checking how a snippet behaves. The process is an isolated sandbox with no network. It cannot see the workspace or the rest of the filesystem. The Python standard library is available. A workspace .venv or venv is mounted read-only so its installed packages can be imported. Returns stdout, stderr, and the exit code. Do not use this to create or edit workspace files.",
+        "icon": "$(beaker)",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "string",
+              "description": "Python source to execute. Print the result to stdout. The sandbox cannot read the workspace. Packages installed in the workspace .venv or venv are importable."
+            }
+          },
+          "required": ["code"]
         },
         "tags": ["integrity"]
       }

@@ -18,6 +18,7 @@ import {
 	type EnsureOllamaModelDeps,
 	type EnsureOllamaModelResult,
 } from './ollamaModels';
+import { isSweBenchBenchmark, shouldDeclineOllamaInstall } from '../swebench/benchmarkMode';
 
 export { isOllamaModelReady, ollamaModelNotReadyMessage } from './ollamaModels';
 
@@ -90,6 +91,9 @@ const vscodeEnsureDeps: EnsureOllamaModelDeps = {
 	lookupSize: model => lookupOllamaModelSize(model),
 	pull: (baseUrl, model, onProgress, signal) => pullOllamaModel(baseUrl, model, { onProgress, signal }),
 	promptInstall: async (model, sizeBytes) => {
+		if (shouldDeclineOllamaInstall(isSweBenchBenchmark())) {
+			return false;
+		}
 		const { message, detail } = installPromptCopy(model, sizeBytes);
 		const choice = await vscode.window.showInformationMessage(message, { modal: true, detail }, 'Install');
 		return choice === 'Install';

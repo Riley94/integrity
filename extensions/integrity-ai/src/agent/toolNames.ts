@@ -16,6 +16,7 @@ export const IntegrityToolName = {
 	FileSearch: 'integrity_file_search',
 	CodebaseSearch: 'integrity_codebase_search',
 	GetErrors: 'integrity_get_errors',
+	Scratchpad: 'integrity_scratchpad',
 } as const;
 
 export type IntegrityToolName = (typeof IntegrityToolName)[keyof typeof IntegrityToolName];
@@ -35,6 +36,15 @@ export const EDIT_TOOLS: ReadonlySet<string> = new Set([
 	IntegrityToolName.CreateFile,
 	IntegrityToolName.ReplaceString,
 	IntegrityToolName.ApplyPatch,
+]);
+
+/**
+ * Python scratchpad. Allowed in Ask and Agent so a question can be answered by running code.
+ * It is not in {@link READ_ONLY_TOOLS}, so the call still follows the edit approval setting.
+ * Edit mode stays file-only.
+ */
+export const SCRATCHPAD_TOOLS: ReadonlySet<string> = new Set([
+	IntegrityToolName.Scratchpad,
 ]);
 
 /**
@@ -68,6 +78,7 @@ export function inferModeKind(modeName: string | undefined): AgentModeKind {
 const INTEGRITY_TOOLS: ReadonlySet<string> = new Set([
 	...READ_ONLY_TOOLS,
 	...EDIT_TOOLS,
+	...SCRATCHPAD_TOOLS,
 ]);
 
 /**
@@ -117,6 +128,9 @@ export function selectToolsForJev<T extends { name: string }>(
 export function isToolAllowedInMode(toolName: string, mode: AgentModeKind): boolean {
 	if (READ_ONLY_TOOLS.has(toolName)) {
 		return true;
+	}
+	if (SCRATCHPAD_TOOLS.has(toolName)) {
+		return mode === 'ask' || mode === 'agent';
 	}
 	if (EDIT_TOOLS.has(toolName)) {
 		return mode === 'edit' || mode === 'agent';

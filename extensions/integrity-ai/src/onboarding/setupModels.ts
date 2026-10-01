@@ -12,6 +12,7 @@ import {
 	probeOllama,
 	type EnsureOllamaResult,
 } from '../ollama/ollamaServer';
+import { isSweBenchBenchmark, shouldRunOnboarding } from '../swebench/benchmarkMode';
 
 const OLLAMA_INSTALL_URL = 'https://ollama.com';
 
@@ -61,8 +62,8 @@ export async function setupRecommendedModels(): Promise<void> {
 }
 
 export async function runOnboarding(context: vscode.ExtensionContext): Promise<void> {
-	const seen = context.globalState.get<boolean>('integrity.onboardingDone');
-	if (seen) {
+	const seen = context.globalState.get<boolean>('integrity.onboardingDone') === true;
+	if (!shouldRunOnboarding(seen, isSweBenchBenchmark())) {
 		return;
 	}
 

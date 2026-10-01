@@ -87,4 +87,14 @@ describe('buildSystemPrompt', () => {
 		assert.match(prompt, /--- Context ---/);
 		assert.match(prompt, /File: main\.py/);
 	});
+
+	it('tells the writer to run Python before answering when the host rule requires it', () => {
+		const prompt = buildSystemPrompt('agent', '', '', [{
+			name: 'integrity_scratchpad',
+			description: 'Run a short Python 3 snippet.',
+		}], true);
+		assert.match(prompt, /integrity_scratchpad/);
+		assert.match(prompt, /before answering/);
+		assert.match(prompt, /stdout and stderr/);
+	});
 });

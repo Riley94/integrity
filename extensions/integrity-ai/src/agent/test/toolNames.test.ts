@@ -30,6 +30,12 @@ describe('isToolAllowedInMode', () => {
 		assert.equal(isToolAllowedInMode(IntegrityToolName.ApplyPatch, 'edit'), true);
 		assert.equal(isToolAllowedInMode(IntegrityToolName.ApplyPatch, 'agent'), true);
 	});
+
+	it('allows the scratchpad in ask and agent, and blocks it in edit', () => {
+		assert.equal(isToolAllowedInMode(IntegrityToolName.Scratchpad, 'ask'), true);
+		assert.equal(isToolAllowedInMode(IntegrityToolName.Scratchpad, 'agent'), true);
+		assert.equal(isToolAllowedInMode(IntegrityToolName.Scratchpad, 'edit'), false);
+	});
 });
 
 describe('selectToolsForJev', () => {
@@ -88,6 +94,31 @@ describe('selectToolsForJev', () => {
 			IntegrityToolName.CreateFile,
 			IntegrityToolName.ReplaceString,
 			IntegrityToolName.ApplyPatch,
+		]);
+	});
+
+	it('offers the scratchpad in ask when the request omitted it', () => {
+		const scratchpad = { name: IntegrityToolName.Scratchpad };
+		const request = new Map([[read, true]]);
+		assert.deepEqual(names(selectToolsForJev('ask', request, [read, scratchpad, patch])), [
+			IntegrityToolName.ReadFile,
+			IntegrityToolName.Scratchpad,
+		]);
+	});
+
+	it('keeps the scratchpad out of edit mode', () => {
+		const scratchpad = { name: IntegrityToolName.Scratchpad };
+		assert.deepEqual(names(selectToolsForJev('edit', undefined, [read, scratchpad, patch])), [
+			IntegrityToolName.ReadFile,
+			IntegrityToolName.ApplyPatch,
+		]);
+	});
+
+	it('does not put back a scratchpad the request disabled', () => {
+		const scratchpad = { name: IntegrityToolName.Scratchpad };
+		const request = new Map<typeof scratchpad, boolean>([[scratchpad, false], [read, true]]);
+		assert.deepEqual(names(selectToolsForJev('agent', request, [read, scratchpad])), [
+			IntegrityToolName.ReadFile,
 		]);
 	});
 });

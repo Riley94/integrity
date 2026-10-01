@@ -16,6 +16,8 @@ import {
 	resolveAgentFilePath,
 	type PatchHunk,
 } from './pathPolicy';
+import { applyEditThenSave } from './editPersistence';
+import { executeScratchpad } from './scratchpad';
 import { IntegrityToolName } from './toolNames';
 import { beginCancellation, rankChunksForContext } from '../jev/forks';
 import { isAbortError } from '../jev/jevClient';
@@ -47,6 +49,20 @@ function resolveUri(relativePath: string): vscode.Uri | undefined {
 		return folder.uri;
 	}
 	return vscode.Uri.joinPath(folder.uri, normalized);
+}
+
+/**
+ * Apply the edit to the open editor, then write it to disk.
+ * A text edit stays dirty until saved, so the next read would otherwise see the old file.
+ */
+async function applyEditAndSave(edit: vscode.WorkspaceEdit, uri: vscode.Uri): Promise<boolean> {
+	return applyEditThenSave(
+		() => vscode.workspace.applyEdit(edit),
+		async () => {
+			const doc = await vscode.workspace.openTextDocument(uri);
+			return doc.save();
+		},
+	);
 }
 
 function textResult(text: string): vscode.LanguageModelToolResult {
@@ -240,7 +256,7 @@ class CreateFileTool implements vscode.LanguageModelTool<{ path: string; content
 		// Confirmation is owned by the native chat loop so Jev cannot skip the approval floor.
 		const edit = new vscode.WorkspaceEdit();
 		edit.createFile(uri, { overwrite, contents: Buffer.from(content) });
-		const ok = await vscode.workspace.applyEdit(edit);
+		const ok = await applyEditAndSave(edit, uri);
 		return textResult(ok ? `Created ${relative}` : `Failed to create ${relative}`);
 	}
 }
@@ -282,7 +298,7 @@ class ReplaceStringTool implements vscode.LanguageModelTool<{ path: string; oldT
 		const fullRange = new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length));
 		const edit = new vscode.WorkspaceEdit();
 		edit.replace(uri, fullRange, result.updated);
-		const ok = await vscode.workspace.applyEdit(edit);
+		const ok = await applyEditAndSave(edit, uri);
 		return textResult(ok ? `Updated ${relative}` : `Failed to update ${relative}`);
 	}
 }
@@ -342,7 +358,7 @@ class ApplyPatchTool implements vscode.LanguageModelTool<{ path: string; hunks?:
 			const fullRange = new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length));
 			edit.replace(uri, fullRange, result.updated);
 		}
-		const ok = await vscode.workspace.applyEdit(edit);
+		const ok = await applyEditAndSave(edit, uri);
 		if (!ok) {
 			return textResult(`Failed to apply patch to ${relative}`);
 		}
@@ -504,6 +520,27 @@ class GetErrorsTool implements vscode.LanguageModelTool<{ path?: string }> {
 	}
 }
 
+class ScratchpadTool implements vscode.LanguageModelTool<{ code: string }> {
+	async invoke(
+		options: vscode.LanguageModelToolInvocationOptions<{ code: string }>,
+		token: vscode.CancellationToken,
+	): Promise<vscode.LanguageModelToolResult> {
+		const code = typeof options.input?.code === 'string' ? options.input.code : '';
+		const roots = (vscode.workspace.workspaceFolders ?? []).map(folder => folder.uri.fsPath);
+		const abort = new AbortController();
+		const subscription = token.onCancellationRequested(() => abort.abort());
+		try {
+			return textResult(await executeScratchpad({
+				code,
+				workspaceRoots: roots,
+				signal: abort.signal,
+			}));
+		} finally {
+			subscription.dispose();
+		}
+	}
+}
+
 /**
  * Register Integrity language model tools.
  */
@@ -521,6 +558,7 @@ export function registerIntegrityTools(
 		vscode.lm.registerTool(IntegrityToolName.FileSearch, new FileSearchTool()),
 		vscode.lm.registerTool(IntegrityToolName.CodebaseSearch, new CodebaseSearchTool(index)),
 		vscode.lm.registerTool(IntegrityToolName.GetErrors, new GetErrorsTool()),
+		vscode.lm.registerTool(IntegrityToolName.Scratchpad, new ScratchpadTool()),
 	);
 }
 

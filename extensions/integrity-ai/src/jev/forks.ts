@@ -5,23 +5,13 @@
 
 import * as vscode from 'vscode';
 import {
-	type ApprovalVerdict,
-	type CompletionDecision,
-	type CompletionToolCall,
 	type JevThresholds,
 	type PreparedJevCall,
-	type ProposedToolCall,
 	type RetrievalHit,
 	type ToolSurfaceTool,
-	COMPLETION_QUESTION,
-	approvalQuestionId,
-	buildApprovalRequest,
-	buildCompletionRequest,
 	buildRetrievalRequest,
 	buildToolSurfaceRequest,
-	explainCompletion,
 	explainToolSurface,
-	interpretApproval,
 	interpretRetrieval,
 	offeredToolChoices,
 	type ToolSurfaceTrace,
@@ -33,6 +23,7 @@ import {
 	evaluateJev,
 	isAbortError,
 } from './jevClient';
+import { approvalFloors, isSweBenchBenchmark } from '../swebench/benchmarkMode';
 
 export interface JevRuntime {
 	config: JevClientConfig;
@@ -43,6 +34,7 @@ export interface JevRuntime {
 
 /**
  * Read Jev and approval settings. Thresholds are clamped to 0..1.
+ * A SWE-bench smoke run clears the edit and terminal approval floors.
  */
 export function readJevRuntime(): JevRuntime {
 	const cfg = vscode.workspace.getConfiguration('integrity.ai');
@@ -53,20 +45,20 @@ export function readJevRuntime(): JevRuntime {
 			model: cfg.get<string>('jev.model', 'jev-latest'),
 		},
 		thresholds: {
-			approvalThreshold: unit(cfg.get<number>('jev.approvalThreshold', 0.7), 0.7),
 			retrievalThreshold: unit(cfg.get<number>('jev.retrievalThreshold', 0.5), 0.5),
-			completionConfidence: unit(cfg.get<number>('jev.completionConfidence', 0.6), 0.6),
 			toolSurfaceConfidence: unit(cfg.get<number>('jev.toolSurfaceConfidence', 0.5), 0.5),
 		},
-		requireEditApproval: cfg.get<boolean>('agent.requireEditApproval', true),
-		requireTerminalApproval: cfg.get<boolean>('agent.requireTerminalApproval', true),
+		...approvalFloors({
+			requireEditApproval: cfg.get<boolean>('agent.requireEditApproval', true),
+			requireTerminalApproval: cfg.get<boolean>('agent.requireTerminalApproval', true),
+		}, isSweBenchBenchmark()),
 	};
 }
 
 /**
  * The tools for this turn. An empty list is text only.
  * A missing key or a failed call withholds every tool. A Noul under the threshold withholds that tool.
- * Reply at or above the threshold, and at least as high as every tool, withholds every tool.
+ * Reply at or above the threshold withholds every tool unless a tool exceeds it by more than the reply margin.
  * `text` is the raw answer and that decision. `request` is the state and questions that were sent.
  */
 export async function routeToolSurface(
@@ -125,68 +117,6 @@ export async function rankChunksForContext(
 		threshold: thresholds.retrievalThreshold,
 		onUnavailable,
 	});
-}
-
-/**
- * One verdict per mutating call, keyed by {@link approvalQuestionId}.
- * An unanswered call is a block.
- */
-export async function judgeMutatingCalls(
-	calls: readonly ProposedToolCall[],
-	signal?: AbortSignal,
-): Promise<Map<string, ApprovalVerdict>> {
-	const verdicts = new Map<string, ApprovalVerdict>();
-	const request = buildApprovalRequest(calls);
-	if (!request) {
-		return verdicts;
-	}
-	const runtime = readJevRuntime();
-	const answers = await evaluateOrUnavailable(runtime.config, request, signal);
-	const unavailable = answers === null;
-	calls.forEach((call, index) => {
-		const key = approvalQuestionId(call.id, index);
-		verdicts.set(key, interpretApproval({
-			toolName: call.name,
-			answer: answers?.[key],
-			unavailable: unavailable || !answers?.[key],
-			approvalThreshold: runtime.thresholds.approvalThreshold,
-			requireEditApproval: runtime.requireEditApproval,
-			requireTerminalApproval: runtime.requireTerminalApproval,
-		}));
-	});
-	return verdicts;
-}
-
-/** Completion decision plus the state, questions, and reply for debug output. */
-export interface CompletionCheck {
-	decision: CompletionDecision;
-	request: PreparedJevCall;
-	text: string;
-}
-
-/**
- * Decide whether a text-only assistant reply may end the turn.
- * `toolCalls` are the invocations already made on this turn; they go into the state with the task and reply.
- * `request` is the state and questions that were sent. `text` is the raw answer and that decision.
- */
-export async function judgeCompletion(
-	task: string,
-	assistantText: string,
-	toolCalls: readonly CompletionToolCall[],
-	priorUnavailable: boolean,
-	signal?: AbortSignal,
-): Promise<CompletionCheck> {
-	const request = buildCompletionRequest(task, assistantText, toolCalls);
-	const { config, thresholds } = readJevRuntime();
-	const answers = await evaluateOrUnavailable(config, request, signal);
-	const answer = answers?.[COMPLETION_QUESTION];
-	const explained = explainCompletion({
-		answer,
-		unavailable: answers === null || !answer,
-		completionConfidence: thresholds.completionConfidence,
-		priorUnavailable,
-	});
-	return { ...explained, request };
 }
 
 /**

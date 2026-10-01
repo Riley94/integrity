@@ -3,6 +3,7 @@
  *  Licensed under the MIT License.
  *--------------------------------------------------------------------------------------------*/
 
+import { SCRATCHPAD_REQUIRED_PROMPT } from './scratchpadHostRule';
 import type { AgentModeKind } from './toolNames';
 
 /**
@@ -50,12 +51,14 @@ export function toolTurnInstructions(tools: readonly SelectedToolPrompt[]): stri
 /**
  * Build the Integrity chat participant system prompt.
  * `tools` are the only tools the writer may see. Omit them for a text-only turn.
+ * `requireScratchpad` adds the host-rule sentence when the scratchpad is already in `tools`.
  */
 export function buildSystemPrompt(
 	mode: AgentModeKind,
 	agentRules: string,
 	extraContext: string,
 	tools: readonly SelectedToolPrompt[] = [],
+	requireScratchpad = false,
 ): string {
 	const parts = [
 		'You are Integrity AI, a local-first coding assistant built into Integrity IDE.',
@@ -63,6 +66,9 @@ export function buildSystemPrompt(
 		toolTurnInstructions(tools),
 		'Be concise. Use markdown code fences with language tags when showing code.',
 	];
+	if (requireScratchpad) {
+		parts.push(SCRATCHPAD_REQUIRED_PROMPT);
+	}
 	if (agentRules.trim()) {
 		parts.push('\n--- Project agent rules ---\n' + agentRules.trim());
 	}

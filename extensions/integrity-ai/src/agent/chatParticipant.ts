@@ -6,33 +6,35 @@
 import * as vscode from 'vscode';
 import { buildSystemPrompt, type SelectedToolPrompt } from './agentPrompt';
 import { rejectionForMisroutedToolCall } from './browserToolGuard';
+import {
+	editReviewPending,
+	emptyEditReviewState,
+	holdReplyForEditReview,
+	MAX_EDIT_REVIEWS,
+	noteToolResult,
+	withReviewReadTool,
+	type EditReviewState,
+} from './editReview';
 import { loadAgentRules, type CodebaseSearchIndex } from './lmTools';
 import { extractPathFromInput } from './pathPolicy';
+import { scratchpadApprovalPreview } from './scratchpad';
+import { applyScratchpadHostRule, holdReplyForScratchpad } from './scratchpadHostRule';
 import { inferModeKind, IntegrityToolName, selectToolsForJev, type AgentModeKind } from './toolNames';
 import { parseModelId } from '../providers/modelId';
 import { ensureOllamaModelReady, isOllamaModelReady, ollamaModelNotReadyMessage } from '../ollama/ensureOllamaModel';
 import {
-	COMPLETION_BLOCKED_MESSAGE,
-	COMPLETION_UNVERIFIED_MESSAGE,
-	type ApprovalVerdict,
-	type CompletionToolCall,
-	approvalQuestionId,
-	blockedMutatingToolMessage,
 	describeSkippedToolSurface,
-	explainCompletion,
 	formatRetrievedChunks,
 	formatJevDebug,
-	buildCompletionRequest,
 	isMutatingTool,
 	isTerminalTool,
+	mutatingToolNeedsConfirmation,
 	rejectionForUnselectedTool,
 } from '../jev/agentDecisions';
 import {
 	beginCancellation,
-	type CompletionCheck,
-	judgeCompletion,
-	judgeMutatingCalls,
 	rankChunksForContext,
+	readJevRuntime,
 	routeToolSurface,
 } from '../jev/forks';
 import { isAbortError } from '../jev/jevClient';
@@ -145,37 +147,49 @@ export async function runChatAgentLoop(
 	const extraContext = [referencesContext(request), retrieved].filter(part => part.trim()).join('\n\n');
 
 	let tools = collectEnabledTools(request, mode);
+	// Full set this mode offered, before Jev narrows it. A review can add the read tool back from here.
+	const toolCatalog = tools;
 	let selectedTools: SelectedToolPrompt[] = [];
+	let scratchpadRequired = false;
 	if (!tools.length) {
 		printJevDebug(stream, describeSkippedToolSurface('no tools were enabled'));
 	} else {
+		const catalog = tools;
+		let jevSelected: vscode.LanguageModelChatTool[] = [];
 		try {
 			stream.progress('Choosing tools with Jev…');
-			const trace = await selectToolSurface(request.prompt, mode, tools, token);
+			const trace = await selectToolSurface(request.prompt, mode, catalog, token);
 			printJevDebug(stream, formatJevDebug(trace.request, trace.text));
 			const selectedNames = new Set(trace.toolNames);
-			const matches = tools.filter(tool => selectedNames.has(tool.name));
-			if (matches.length) {
-				selectedTools = matches.map(tool => ({ name: tool.name, description: tool.description }));
-				tools = matches;
-				stream.progress(`Using ${matches.map(tool => tool.name).join(', ')}…`);
-			} else {
-				tools = [];
-				stream.progress('Answering without tools…');
-			}
+			jevSelected = catalog.filter(tool => selectedNames.has(tool.name));
 		} catch (err) {
 			if (isAbortError(err) || token.isCancellationRequested) {
 				return {};
 			}
 			const message = err instanceof Error ? err.message : String(err);
-			tools = [];
 			printJevDebug(stream, describeSkippedToolSurface(message));
+			jevSelected = [];
 		}
 		if (token.isCancellationRequested) {
 			return {};
 		}
+		const ruled = applyScratchpadHostRule(jevSelected, catalog, request.prompt);
+		scratchpadRequired = ruled.forced;
+		if (ruled.tools.length) {
+			selectedTools = ruled.tools.map(tool => ({ name: tool.name, description: tool.description }));
+			tools = ruled.tools;
+			const keptByHost = scratchpadRequired
+				&& !jevSelected.some(tool => tool.name === IntegrityToolName.Scratchpad);
+			if (keptByHost) {
+				printJevDebug(stream, 'Jev tools\ndecision: host rule kept integrity_scratchpad');
+			}
+			stream.progress(`Using ${ruled.tools.map(tool => tool.name).join(', ')}…`);
+		} else {
+			tools = [];
+			stream.progress('Answering without tools…');
+		}
 	}
-	const system = buildSystemPrompt(mode, agentRules, extraContext, selectedTools);
+	const system = buildSystemPrompt(mode, agentRules, extraContext, selectedTools, scratchpadRequired);
 	const maxSteps = vscode.workspace.getConfiguration('integrity.ai').get<number>('agent.maxSteps', DEFAULT_MAX_STEPS);
 
 	const messages: vscode.LanguageModelChatMessage[] = [
@@ -184,8 +198,22 @@ export async function runChatAgentLoop(
 		vscode.LanguageModelChatMessage.User(request.prompt),
 	];
 
-	let completionUnavailableStreak = 0;
-	const turnToolCalls: CompletionToolCall[] = [];
+	let scratchpadRan = false;
+	let reviewState: EditReviewState = emptyEditReviewState();
+	const canReviewEdits = toolCatalog.some(tool => tool.name === IntegrityToolName.ReadFile);
+
+	// The system prompt names only the tools Jev kept. A review has to be allowed to call the read tool.
+	function grantReadFileForReview(): void {
+		const next = withReviewReadTool(tools, toolCatalog);
+		if (next === tools) {
+			return;
+		}
+		tools = [...next];
+		selectedTools = tools.map(tool => ({ name: tool.name, description: tool.description }));
+		messages[0] = vscode.LanguageModelChatMessage.User(
+			`[System instructions]\n${buildSystemPrompt(mode, agentRules, extraContext, selectedTools, scratchpadRequired)}`,
+		);
+	}
 
 	for (let step = 0; step < maxSteps; step++) {
 		if (token.isCancellationRequested) {
@@ -193,6 +221,9 @@ export async function runChatAgentLoop(
 		}
 
 		stream.progress(step === 0 ? 'Thinking…' : `Continuing (step ${step + 1})…`);
+		// Prose written before the scratchpad runs, or before changed files are reviewed, is not the answer.
+		const scratchpadPending = scratchpadRequired && !scratchpadRan;
+		const reviewPending = canReviewEdits && editReviewPending(reviewState);
 
 		let response: vscode.LanguageModelChatResponse;
 		try {
@@ -218,7 +249,9 @@ export async function runChatAgentLoop(
 				if (part instanceof vscode.LanguageModelTextPart) {
 					assistantParts.push(part);
 					textOut += part.value;
-					stream.markdown(part.value);
+					if (!scratchpadPending && !reviewPending) {
+						stream.markdown(part.value);
+					}
 				} else if (part instanceof vscode.LanguageModelToolCallPart) {
 					assistantParts.push(part);
 					toolCalls.push(part);
@@ -238,50 +271,40 @@ export async function runChatAgentLoop(
 				stream.markdown('_No response from model._');
 				return {};
 			}
-			let checked;
-			try {
-				stream.progress('Checking completion with Jev…');
-				checked = await completionDecision(request.prompt, textOut, turnToolCalls, completionUnavailableStreak > 0, token);
-			} catch (err) {
-				if (isAbortError(err) || token.isCancellationRequested) {
-					return {};
-				}
-				const explained = explainCompletion({
-					answer: undefined,
-					unavailable: true,
-					completionConfidence: 1,
-					priorUnavailable: completionUnavailableStreak > 0,
-				});
-				checked = {
-					...explained,
-					request: buildCompletionRequest(request.prompt, textOut, turnToolCalls),
-				};
+			const decision = holdReplyForScratchpad(scratchpadPending);
+			if (decision.action === 'continue') {
+				stream.progress('Waiting for the scratchpad before answering…');
+				messages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
+				messages.push(vscode.LanguageModelChatMessage.User(decision.message));
+				continue;
 			}
-			if (token.isCancellationRequested) {
+			const review = holdReplyForEditReview(reviewState, canReviewEdits);
+			if (review.action === 'exit') {
 				return {};
 			}
-			printJevDebug(stream, formatJevDebug(checked.request, checked.text));
-			const decision = checked.decision;
-			if (decision.action === 'exit') {
-				return {};
-			}
-			if (decision.action === 'stop') {
-				stream.markdown(`\n\n**${decision.message ?? COMPLETION_BLOCKED_MESSAGE}**`);
-				return {};
-			}
-			completionUnavailableStreak = decision.unavailable ? completionUnavailableStreak + 1 : 0;
-			stream.progress(decision.unavailable ? 'Completion check unavailable, continuing…' : 'Jev asked for another pass…');
+			reviewState = review.state;
+			grantReadFileForReview();
+			stream.progress(`Reviewing changed files (${reviewState.reviews} of ${MAX_EDIT_REVIEWS})…`);
 			messages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
-			messages.push(vscode.LanguageModelChatMessage.User(decision.message ?? COMPLETION_UNVERIFIED_MESSAGE));
+			messages.push(vscode.LanguageModelChatMessage.User(review.message));
 			continue;
 		}
 
-		messages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
-		for (const call of toolCalls) {
-			turnToolCalls.push({ name: call.name, input: call.input });
+		if (toolCalls.some(call => call.name === IntegrityToolName.Scratchpad)) {
+			scratchpadRan = true;
 		}
+		messages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
 
-		const resultParts = await settleToolCalls(toolCalls, selectedTools.map(tool => tool.name), request, stream, token);
+		const resultParts = await settleToolCalls(
+			toolCalls,
+			selectedTools.map(tool => tool.name),
+			request,
+			stream,
+			token,
+			(name, input, text) => {
+				reviewState = noteToolResult(reviewState, name, input, text);
+			},
+		);
 		if (!resultParts) {
 			return {};
 		}
@@ -353,37 +376,10 @@ async function rankedPrefetch(
 	}
 }
 
-async function completionDecision(
-	task: string,
-	assistantText: string,
-	toolCalls: readonly CompletionToolCall[],
-	priorUnavailable: boolean,
-	token: vscode.CancellationToken,
-): Promise<CompletionCheck> {
-	const linked = beginCancellation(token);
-	try {
-		return await judgeCompletion(task, assistantText, toolCalls, priorUnavailable, linked.signal);
-	} catch (err) {
-		if (isAbortError(err) || token.isCancellationRequested) {
-			throw err;
-		}
-		const explained = explainCompletion({
-			answer: undefined,
-			unavailable: true,
-			completionConfidence: 1,
-			priorUnavailable,
-		});
-		return {
-			...explained,
-			request: buildCompletionRequest(task, assistantText, toolCalls),
-		};
-	} finally {
-		linked.end();
-	}
-}
-
 /**
- * Run read-only tools immediately. Mutating tools wait for one batched Jev decision.
+ * Run read-only tools immediately. Mutating tools wait for the user when that
+ * tool kind's approval setting is on. Jev does not take part in this decision.
+ * @param onResult Called for each settled call, including rejections, so the turn can track writes.
  * @returns undefined when the turn was cancelled.
  */
 async function settleToolCalls(
@@ -392,9 +388,10 @@ async function settleToolCalls(
 	request: vscode.ChatRequest,
 	stream: vscode.ChatResponseStream,
 	token: vscode.CancellationToken,
+	onResult?: (name: string, input: unknown, text: string) => void,
 ): Promise<vscode.LanguageModelToolResultPart[] | undefined> {
 	const slots: Array<{ call: vscode.LanguageModelToolCallPart; text: string }> = [];
-	const mutating: Array<{ slot: number; call: vscode.LanguageModelToolCallPart }> = [];
+	const { requireEditApproval, requireTerminalApproval } = readJevRuntime();
 
 	for (const call of toolCalls) {
 		if (token.isCancellationRequested) {
@@ -417,60 +414,22 @@ async function settleToolCalls(
 			slots.push({ call, text: rejected });
 			continue;
 		}
-		if (!isMutatingTool(call.name)) {
-			stream.progress(`Running \`${call.name}\`…`);
-			slots.push({ call, text: await invokeNamedTool(call, request, token) });
-			continue;
-		}
-		mutating.push({ slot: slots.length, call });
-		slots.push({ call, text: '' });
-	}
-
-	if (mutating.length) {
-		const linked = beginCancellation(token);
-		let verdicts = new Map<string, ApprovalVerdict>();
-		try {
-			stream.progress('Asking Jev about tool calls…');
-			verdicts = await judgeMutatingCalls(mutating.map(({ call }) => ({
-				id: call.callId,
-				name: call.name,
-				input: call.input,
-			})), linked.signal);
-		} catch (err) {
-			if (isAbortError(err) || token.isCancellationRequested) {
-				return undefined;
-			}
-		} finally {
-			linked.end();
-		}
-
-		for (let index = 0; index < mutating.length; index++) {
+		if (isMutatingTool(call.name) && mutatingToolNeedsConfirmation(call.name, requireEditApproval, requireTerminalApproval)) {
+			const approved = await confirmMutatingTool(approvalPrompt(call.name, call.input));
 			if (token.isCancellationRequested) {
 				return undefined;
 			}
-			const { slot, call } = mutating[index];
-			const verdict = verdicts.get(approvalQuestionId(call.callId, index)) ?? {
-				action: 'block' as const,
-				message: blockedMutatingToolMessage(call.name),
-			};
-			if (verdict.action === 'block') {
-				stream.progress(`Blocked \`${call.name}\` until Jev answers.`);
-				slots[slot].text = verdict.message;
+			if (!approved) {
+				slots.push({ call, text: `Tool error: ${call.name} cancelled by user.` });
 				continue;
 			}
-			if (verdict.action === 'prompt') {
-				const approved = await confirmMutatingTool(approvalPrompt(call.name, call.input));
-				if (token.isCancellationRequested) {
-					return undefined;
-				}
-				if (!approved) {
-					slots[slot].text = `Tool error: ${call.name} cancelled by user.`;
-					continue;
-				}
-			}
-			stream.progress(`Running \`${call.name}\`…`);
-			slots[slot].text = await invokeNamedTool(call, request, token);
 		}
+		stream.progress(`Running \`${call.name}\`…`);
+		slots.push({ call, text: await invokeNamedTool(call, request, token) });
+	}
+
+	for (const slot of slots) {
+		onResult?.(slot.call.name, slot.call.input, slot.text);
 	}
 
 	return slots.map(slot => new vscode.LanguageModelToolResultPart(
@@ -505,6 +464,8 @@ function approvalPrompt(name: string, input: unknown): string {
 			return path ? `Apply unique replace in ${path}?` : 'Apply unique replace?';
 		case IntegrityToolName.ApplyPatch:
 			return path ? `Apply patch to ${path}?` : 'Apply patch?';
+		case IntegrityToolName.Scratchpad:
+			return scratchpadApprovalPreview(codeFromInput(input) ?? '');
 		default: {
 			if (isTerminalTool(name)) {
 				const command = commandFromInput(input);
@@ -513,6 +474,14 @@ function approvalPrompt(name: string, input: unknown): string {
 			return `Run ${name}?`;
 		}
 	}
+}
+
+function codeFromInput(input: unknown): string | undefined {
+	if (!input || typeof input !== 'object' || Array.isArray(input)) {
+		return undefined;
+	}
+	const code = (input as Record<string, unknown>).code;
+	return typeof code === 'string' ? code : undefined;
 }
 
 function commandFromInput(input: unknown): string | undefined {
