@@ -147,40 +147,13 @@ describe('applyScratchpadHostRule', () => {
 });
 
 describe('holdReplyForScratchpad', () => {
-	const exit = { action: 'exit' as const, unavailable: false };
-	const incomplete = {
-		action: 'continue' as const,
-		message: 'Jev marked this turn as incomplete. Continue the task. Do not repeat the previous summary.',
-		unavailable: false,
-	};
-	const stopped = {
-		action: 'stop' as const,
-		message: 'This turn cannot be finished until Jev answers.',
-		unavailable: true,
-	};
-
-	it('blocks a complete verdict until the scratchpad has run', () => {
-		const held = holdReplyForScratchpad(exit, true);
-		assert.equal(held.action, 'continue');
-		assert.equal(held.unavailable, false);
-		assert.equal(held.message, SCRATCHPAD_REQUIRED_MESSAGE);
-	});
-
-	it('replaces the generic incomplete message with the scratchpad instruction', () => {
-		const held = holdReplyForScratchpad(incomplete, true);
+	it('continues with the scratchpad instruction while the snippet has not run', () => {
+		const held = holdReplyForScratchpad(true);
 		assert.equal(held.action, 'continue');
 		assert.equal(held.message, SCRATCHPAD_REQUIRED_MESSAGE);
 	});
 
-	it('does not stop the turn on a missing completion score before the snippet runs', () => {
-		const held = holdReplyForScratchpad(stopped, true);
-		assert.equal(held.action, 'continue');
-		assert.equal(held.unavailable, false);
-		assert.equal(held.message, SCRATCHPAD_REQUIRED_MESSAGE);
-	});
-
-	it('returns the same decision once the scratchpad is no longer required', () => {
-		assert.equal(holdReplyForScratchpad(exit, false), exit);
-		assert.equal(holdReplyForScratchpad(stopped, false), stopped);
+	it('ends the turn once the scratchpad is no longer required', () => {
+		assert.deepEqual(holdReplyForScratchpad(false), { action: 'exit' });
 	});
 });

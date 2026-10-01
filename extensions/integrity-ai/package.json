@@ -90,7 +90,7 @@
         "integrity.ai.jev.apiKey": {
           "type": "string",
           "default": "",
-          "description": "Jev API key (BYOK). Required for tool selection and completion checks."
+          "description": "Jev API key (BYOK). Required for tool selection and retrieval ranking."
         },
         "integrity.ai.jev.baseUrl": {
           "type": "string",
@@ -109,13 +109,6 @@
           "maximum": 1,
           "description": "Noul at or above this value keeps a retrieved chunk"
         },
-        "integrity.ai.jev.completionConfidence": {
-          "type": "number",
-          "default": 0.6,
-          "minimum": 0,
-          "maximum": 1,
-          "description": "Noul at or above this value treats the turn as complete"
-        },
         "integrity.ai.jev.toolSurfaceConfidence": {
           "type": "number",
           "default": 0.5,
@@ -126,7 +119,7 @@
         "integrity.ai.jev.debug": {
           "type": "boolean",
           "default": false,
-          "description": "Development flag. Print Jev state, questions, and replies for tool selection and completion checks in chat"
+          "description": "Development flag. Print Jev state, questions, and replies for tool selection in chat"
         },
         "integrity.ai.inlineCompletions.enabled": {
           "type": "boolean",

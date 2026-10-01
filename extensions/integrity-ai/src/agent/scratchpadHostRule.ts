@@ -3,7 +3,6 @@
  *  Licensed under the MIT License.
  *--------------------------------------------------------------------------------------------*/
 
-import type { CompletionDecision } from '../jev/agentDecisions';
 import { IntegrityToolName } from './toolNames';
 
 /**
@@ -118,20 +117,23 @@ export function applyScratchpadHostRule<T extends { name: string }>(
 	return { tools: [...selected, scratchpad], forced: true };
 }
 
+/** What to do with a text-only assistant reply. */
+export type TextReplyDecision =
+	| { action: 'exit' }
+	| { action: 'continue'; message: string };
+
 /**
- * Hold a text reply until the scratchpad has run.
- * Jev's exit, incomplete, and unavailable verdicts all continue with {@link SCRATCHPAD_REQUIRED_MESSAGE}.
- * A missing completion score must not end the turn before the snippet runs; `unavailable` is cleared
- * so that miss does not count toward the stop streak. The step cap still ends the loop.
- * When `pending` is false, `decision` is returned unchanged.
+ * A text reply ends the turn unless the scratchpad is still required.
+ * The host does not ask Jev whether the task is complete. While `pending` is true,
+ * the next step is told to run the snippet via {@link SCRATCHPAD_REQUIRED_MESSAGE}.
+ * The step cap still ends the loop.
  */
-export function holdReplyForScratchpad(decision: CompletionDecision, pending: boolean): CompletionDecision {
+export function holdReplyForScratchpad(pending: boolean): TextReplyDecision {
 	if (!pending) {
-		return decision;
+		return { action: 'exit' };
 	}
 	return {
 		action: 'continue',
 		message: SCRATCHPAD_REQUIRED_MESSAGE,
-		unavailable: false,
 	};
 }

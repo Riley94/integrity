@@ -14,14 +14,9 @@ import { inferModeKind, IntegrityToolName, selectToolsForJev, type AgentModeKind
 import { parseModelId } from '../providers/modelId';
 import { ensureOllamaModelReady, isOllamaModelReady, ollamaModelNotReadyMessage } from '../ollama/ensureOllamaModel';
 import {
-	COMPLETION_BLOCKED_MESSAGE,
-	COMPLETION_UNVERIFIED_MESSAGE,
-	type CompletionToolCall,
 	describeSkippedToolSurface,
-	explainCompletion,
 	formatRetrievedChunks,
 	formatJevDebug,
-	buildCompletionRequest,
 	isMutatingTool,
 	isTerminalTool,
 	mutatingToolNeedsConfirmation,
@@ -29,8 +24,6 @@ import {
 } from '../jev/agentDecisions';
 import {
 	beginCancellation,
-	type CompletionCheck,
-	judgeCompletion,
 	rankChunksForContext,
 	readJevRuntime,
 	routeToolSurface,
@@ -194,8 +187,7 @@ export async function runChatAgentLoop(
 		vscode.LanguageModelChatMessage.User(request.prompt),
 	];
 
-	let completionUnavailableStreak = 0;
-	const turnToolCalls: CompletionToolCall[] = [];
+	let scratchpadRan = false;
 
 	for (let step = 0; step < maxSteps; step++) {
 		if (token.isCancellationRequested) {
@@ -204,8 +196,7 @@ export async function runChatAgentLoop(
 
 		stream.progress(step === 0 ? 'Thinking…' : `Continuing (step ${step + 1})…`);
 		// Prose written before the scratchpad runs is not the answer, so it stays off the chat stream.
-		const scratchpadPending = scratchpadRequired
-			&& !turnToolCalls.some(call => call.name === IntegrityToolName.Scratchpad);
+		const scratchpadPending = scratchpadRequired && !scratchpadRan;
 
 		let response: vscode.LanguageModelChatResponse;
 		try {
@@ -253,55 +244,20 @@ export async function runChatAgentLoop(
 				stream.markdown('_No response from model._');
 				return {};
 			}
-			let checked;
-			try {
-				stream.progress('Checking completion with Jev…');
-				checked = await completionDecision(request.prompt, textOut, turnToolCalls, completionUnavailableStreak > 0, token);
-			} catch (err) {
-				if (isAbortError(err) || token.isCancellationRequested) {
-					return {};
-				}
-				const explained = explainCompletion({
-					answer: undefined,
-					unavailable: true,
-					completionConfidence: 1,
-					priorUnavailable: completionUnavailableStreak > 0,
-				});
-				checked = {
-					...explained,
-					request: buildCompletionRequest(request.prompt, textOut, turnToolCalls),
-				};
-			}
-			if (token.isCancellationRequested) {
-				return {};
-			}
-			printJevDebug(stream, formatJevDebug(checked.request, checked.text));
-			const decision = holdReplyForScratchpad(checked.decision, scratchpadPending);
-			if (decision !== checked.decision) {
-				printJevDebug(stream, `Jev completion\ndecision: continue\nmessage: ${decision.message ?? ''}`);
-			}
+			const decision = holdReplyForScratchpad(scratchpadPending);
 			if (decision.action === 'exit') {
 				return {};
 			}
-			if (decision.action === 'stop') {
-				stream.markdown(`\n\n**${decision.message ?? COMPLETION_BLOCKED_MESSAGE}**`);
-				return {};
-			}
-			completionUnavailableStreak = decision.unavailable ? completionUnavailableStreak + 1 : 0;
-			stream.progress(decision !== checked.decision
-				? 'Waiting for the scratchpad before answering…'
-				: decision.unavailable
-					? 'Completion check unavailable, continuing…'
-					: 'Jev asked for another pass…');
+			stream.progress('Waiting for the scratchpad before answering…');
 			messages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
-			messages.push(vscode.LanguageModelChatMessage.User(decision.message ?? COMPLETION_UNVERIFIED_MESSAGE));
+			messages.push(vscode.LanguageModelChatMessage.User(decision.message));
 			continue;
 		}
 
-		messages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
-		for (const call of toolCalls) {
-			turnToolCalls.push({ name: call.name, input: call.input });
+		if (toolCalls.some(call => call.name === IntegrityToolName.Scratchpad)) {
+			scratchpadRan = true;
 		}
+		messages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
 
 		const resultParts = await settleToolCalls(toolCalls, selectedTools.map(tool => tool.name), request, stream, token);
 		if (!resultParts) {
@@ -370,35 +326,6 @@ async function rankedPrefetch(
 	try {
 		const ranked = await rankChunksForContext(prompt, hits, 'drop-all', linked.signal);
 		return formatRetrievedChunks(ranked);
-	} finally {
-		linked.end();
-	}
-}
-
-async function completionDecision(
-	task: string,
-	assistantText: string,
-	toolCalls: readonly CompletionToolCall[],
-	priorUnavailable: boolean,
-	token: vscode.CancellationToken,
-): Promise<CompletionCheck> {
-	const linked = beginCancellation(token);
-	try {
-		return await judgeCompletion(task, assistantText, toolCalls, priorUnavailable, linked.signal);
-	} catch (err) {
-		if (isAbortError(err) || token.isCancellationRequested) {
-			throw err;
-		}
-		const explained = explainCompletion({
-			answer: undefined,
-			unavailable: true,
-			completionConfidence: 1,
-			priorUnavailable,
-		});
-		return {
-			...explained,
-			request: buildCompletionRequest(task, assistantText, toolCalls),
-		};
 	} finally {
 		linked.end();
 	}
