@@ -13,6 +13,15 @@ describe('modeSystemPrompt', () => {
 		assert.match(modeSystemPrompt('edit'), /Edit mode/);
 		assert.match(modeSystemPrompt('agent'), /Agent mode/);
 	});
+
+	it('requires a control to perform its behavior unless the user asked for a placeholder', () => {
+		const text = modeSystemPrompt('agent');
+		assert.match(text, /control, command, or screen/);
+		assert.match(text, /perform the behavior the user asked for/);
+		assert.match(text, /placeholder/);
+		assert.doesNotMatch(modeSystemPrompt('ask'), /placeholder/);
+		assert.doesNotMatch(modeSystemPrompt('edit'), /placeholder/);
+	});
 });
 
 describe('toolTurnInstructions', () => {
@@ -86,6 +95,27 @@ describe('buildSystemPrompt', () => {
 		assert.match(prompt, /No network\./);
 		assert.match(prompt, /--- Context ---/);
 		assert.match(prompt, /File: main\.py/);
+	});
+
+	it('lists files from earlier in the chat and tells the writer to stay in them', () => {
+		const prompt = buildSystemPrompt('agent', '', '', [], false, [
+			{ path: 'app.py', action: 'created' },
+			{ path: 'src/calc.py', action: 'updated' },
+		]);
+		assert.match(prompt, /Files already changed in this chat/);
+		assert.match(prompt, /app\.py \(created\)/);
+		assert.match(prompt, /src\/calc\.py \(updated\)/);
+		assert.match(prompt, /Do not start a new file or a new language unless the user asks/);
+		assert.doesNotMatch(prompt, /before editing/);
+	});
+
+	it('tells the writer to read those files before editing only when that flag is set', () => {
+		const files = [{ path: 'app.py', action: 'created' as const }];
+		const tools = [{ name: 'integrity_read_file', description: 'Read a workspace file.' }];
+		const without = buildSystemPrompt('agent', '', '', tools, false, files, false);
+		const withRead = buildSystemPrompt('agent', '', '', tools, false, files, true);
+		assert.doesNotMatch(without, /before editing/);
+		assert.match(withRead, /Read these files with integrity_read_file before editing them/);
 	});
 
 	it('tells the writer to run Python before answering when the host rule requires it', () => {

@@ -19,7 +19,16 @@ import { loadAgentRules, type CodebaseSearchIndex } from './lmTools';
 import { extractPathFromInput } from './pathPolicy';
 import { scratchpadApprovalPreview } from './scratchpad';
 import { applyScratchpadHostRule, holdReplyForScratchpad } from './scratchpadHostRule';
-import { inferModeKind, IntegrityToolName, selectToolsForJev, type AgentModeKind } from './toolNames';
+import {
+	continuationTask,
+	noteSessionWrite,
+	previousUserPrompt,
+	sessionFilesResult,
+	unionSessionFiles,
+	type SessionFileRecord,
+	type SessionHistoryTurn,
+} from './sessionFiles';
+import { EDIT_TOOLS, inferModeKind, IntegrityToolName, selectToolsForJev, type AgentModeKind } from './toolNames';
 import { parseModelId } from '../providers/modelId';
 import { ensureOllamaModelReady, isOllamaModelReady, ollamaModelNotReadyMessage } from '../ollama/ensureOllamaModel';
 import {
@@ -71,6 +80,21 @@ function historyToMessages(context: vscode.ChatContext): vscode.LanguageModelCha
 	return messages;
 }
 
+/**
+ * Prior turns as plain data. The current request is not in `context.history`.
+ */
+function historyForSession(context: vscode.ChatContext): SessionHistoryTurn[] {
+	const turns: SessionHistoryTurn[] = [];
+	for (const turn of context.history) {
+		if (turn instanceof vscode.ChatRequestTurn) {
+			turns.push({ kind: 'user', prompt: turn.prompt });
+		} else if (turn instanceof vscode.ChatResponseTurn) {
+			turns.push({ kind: 'assistant', metadata: turn.result?.metadata });
+		}
+	}
+	return turns;
+}
+
 function referencesContext(request: vscode.ChatRequest): string {
 	const blocks: string[] = [];
 	for (const ref of request.references) {
@@ -120,6 +144,10 @@ export async function runChatAgentLoop(
 		return {};
 	}
 
+	const historyTurns = historyForSession(context);
+	const priorFiles = unionSessionFiles(historyTurns);
+	const task = continuationTask(request.prompt, previousUserPrompt(historyTurns), priorFiles);
+
 	const parsed = parseModelId(model.id);
 	if (model.family === 'ollama' || parsed.providerId === 'ollama') {
 		stream.progress('Checking Ollama model…');
@@ -133,7 +161,7 @@ export async function runChatAgentLoop(
 	let retrieved = '';
 	try {
 		stream.progress('Ranking context with Jev…');
-		retrieved = await rankedPrefetch(index, request.prompt, token);
+		retrieved = await rankedPrefetch(index, task, token);
 	} catch (err) {
 		if (isAbortError(err) || token.isCancellationRequested) {
 			return {};
@@ -151,6 +179,7 @@ export async function runChatAgentLoop(
 	const toolCatalog = tools;
 	let selectedTools: SelectedToolPrompt[] = [];
 	let scratchpadRequired = false;
+	let readBeforeEdit = false;
 	if (!tools.length) {
 		printJevDebug(stream, describeSkippedToolSurface('no tools were enabled'));
 	} else {
@@ -158,7 +187,7 @@ export async function runChatAgentLoop(
 		let jevSelected: vscode.LanguageModelChatTool[] = [];
 		try {
 			stream.progress('Choosing tools with Jev…');
-			const trace = await selectToolSurface(request.prompt, mode, catalog, token);
+			const trace = await selectToolSurface(task, mode, catalog, token);
 			printJevDebug(stream, formatJevDebug(trace.request, trace.text));
 			const selectedNames = new Set(trace.toolNames);
 			jevSelected = catalog.filter(tool => selectedNames.has(tool.name));
@@ -176,20 +205,26 @@ export async function runChatAgentLoop(
 		const ruled = applyScratchpadHostRule(jevSelected, catalog, request.prompt);
 		scratchpadRequired = ruled.forced;
 		if (ruled.tools.length) {
-			selectedTools = ruled.tools.map(tool => ({ name: tool.name, description: tool.description }));
-			tools = ruled.tools;
+			let ruledTools = ruled.tools;
+			const keepRead = priorFiles.length > 0 && ruledTools.some(tool => EDIT_TOOLS.has(tool.name));
+			if (keepRead) {
+				ruledTools = [...withReviewReadTool(ruledTools, catalog)];
+			}
+			readBeforeEdit = keepRead && ruledTools.some(tool => tool.name === IntegrityToolName.ReadFile);
+			selectedTools = ruledTools.map(tool => ({ name: tool.name, description: tool.description }));
+			tools = ruledTools;
 			const keptByHost = scratchpadRequired
 				&& !jevSelected.some(tool => tool.name === IntegrityToolName.Scratchpad);
 			if (keptByHost) {
 				printJevDebug(stream, 'Jev tools\ndecision: host rule kept integrity_scratchpad');
 			}
-			stream.progress(`Using ${ruled.tools.map(tool => tool.name).join(', ')}…`);
+			stream.progress(`Using ${tools.map(tool => tool.name).join(', ')}…`);
 		} else {
 			tools = [];
 			stream.progress('Answering without tools…');
 		}
 	}
-	const system = buildSystemPrompt(mode, agentRules, extraContext, selectedTools, scratchpadRequired);
+	const system = buildSystemPrompt(mode, agentRules, extraContext, selectedTools, scratchpadRequired, priorFiles, readBeforeEdit);
 	const maxSteps = vscode.workspace.getConfiguration('integrity.ai').get<number>('agent.maxSteps', DEFAULT_MAX_STEPS);
 
 	const messages: vscode.LanguageModelChatMessage[] = [
@@ -200,7 +235,16 @@ export async function runChatAgentLoop(
 
 	let scratchpadRan = false;
 	let reviewState: EditReviewState = emptyEditReviewState();
+	let writtenFiles: readonly SessionFileRecord[] = [];
 	const canReviewEdits = toolCatalog.some(tool => tool.name === IntegrityToolName.ReadFile);
+
+	/**
+	 * Persist this turn's writes. A cancellation leaves metadata empty so a stopped turn
+	 * does not claim files the user may have rejected mid-flight.
+	 */
+	function finishTurn(): vscode.ChatResult {
+		return sessionFilesResult(writtenFiles);
+	}
 
 	// The system prompt names only the tools Jev kept. A review has to be allowed to call the read tool.
 	function grantReadFileForReview(): void {
@@ -211,7 +255,7 @@ export async function runChatAgentLoop(
 		tools = [...next];
 		selectedTools = tools.map(tool => ({ name: tool.name, description: tool.description }));
 		messages[0] = vscode.LanguageModelChatMessage.User(
-			`[System instructions]\n${buildSystemPrompt(mode, agentRules, extraContext, selectedTools, scratchpadRequired)}`,
+			`[System instructions]\n${buildSystemPrompt(mode, agentRules, extraContext, selectedTools, scratchpadRequired, priorFiles, readBeforeEdit)}`,
 		);
 	}
 
@@ -234,7 +278,7 @@ export async function runChatAgentLoop(
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
 			stream.markdown(`**Model error:** ${message}`);
-			return {};
+			return finishTurn();
 		}
 
 		const assistantParts: Array<vscode.LanguageModelTextPart | vscode.LanguageModelToolCallPart> = [];
@@ -263,13 +307,13 @@ export async function runChatAgentLoop(
 			}
 			const message = err instanceof Error ? err.message : String(err);
 			stream.markdown(`\n\n**Stream error:** ${message}`);
-			return {};
+			return finishTurn();
 		}
 
 		if (!toolCalls.length) {
 			if (!textOut.trim()) {
 				stream.markdown('_No response from model._');
-				return {};
+				return finishTurn();
 			}
 			const decision = holdReplyForScratchpad(scratchpadPending);
 			if (decision.action === 'continue') {
@@ -280,7 +324,7 @@ export async function runChatAgentLoop(
 			}
 			const review = holdReplyForEditReview(reviewState, canReviewEdits);
 			if (review.action === 'exit') {
-				return {};
+				return finishTurn();
 			}
 			reviewState = review.state;
 			grantReadFileForReview();
@@ -303,6 +347,7 @@ export async function runChatAgentLoop(
 			token,
 			(name, input, text) => {
 				reviewState = noteToolResult(reviewState, name, input, text);
+				writtenFiles = noteSessionWrite(writtenFiles, name, text);
 			},
 		);
 		if (!resultParts) {
@@ -312,7 +357,7 @@ export async function runChatAgentLoop(
 	}
 
 	stream.markdown(`\n\n_Agent reached max steps (${maxSteps})._`);
-	return {};
+	return finishTurn();
 }
 
 /**
