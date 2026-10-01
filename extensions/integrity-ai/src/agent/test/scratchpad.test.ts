@@ -5,8 +5,7 @@
 
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { access } from 'node:fs/promises';
+import { access, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -15,6 +14,8 @@ import {
 	executeScratchpad,
 	scratchpadApprovalPreview,
 	scratchpadEnv,
+	virtualEnvRoot,
+	workspacePythonCandidates,
 } from '../scratchpad';
 
 function stdoutOf(text: string): string {
@@ -22,6 +23,26 @@ function stdoutOf(text: string): string {
 	const end = text.indexOf('\nstderr:\n');
 	assert.ok(start >= 0 && end > start, text);
 	return text.slice(start + '\nstdout:\n'.length, end);
+}
+
+/** Create `.venv` and return its site-packages directory, or undefined when venv cannot be created. */
+async function createWorkspaceVenv(root: string): Promise<string | undefined> {
+	const created = await new Promise<boolean>(resolve => {
+		const child = spawn('python3', ['-m', 'venv', join(root, '.venv')], { stdio: 'ignore' });
+		child.on('error', () => resolve(false));
+		child.on('close', code => resolve(code === 0));
+	});
+	if (!created) {
+		return undefined;
+	}
+	let versions: string[];
+	try {
+		versions = await readdir(join(root, '.venv', 'lib'));
+	} catch {
+		return undefined;
+	}
+	const py = versions.find(name => name.startsWith('python'));
+	return py ? join(root, '.venv', 'lib', py, 'site-packages') : undefined;
 }
 
 function pythonReady(): Promise<boolean> {
@@ -55,6 +76,38 @@ describe('scratchpadEnv', () => {
 			PYTHONPATH: `${workspace}${delimiter}${workspace}/src`,
 		});
 		assert.equal(env.PYTHONPATH, undefined);
+	});
+});
+
+describe('workspacePythonCandidates', () => {
+	it('checks .venv before venv', () => {
+		const candidates = workspacePythonCandidates('/work');
+		if (process.platform === 'win32') {
+			assert.deepEqual(candidates, [
+				join('/work', '.venv', 'Scripts', 'python.exe'),
+				join('/work', 'venv', 'Scripts', 'python.exe'),
+			]);
+			return;
+		}
+		assert.deepEqual(candidates, [
+			'/work/.venv/bin/python',
+			'/work/.venv/bin/python3',
+			'/work/venv/bin/python',
+			'/work/venv/bin/python3',
+		]);
+	});
+});
+
+describe('virtualEnvRoot', () => {
+	it('recognizes a workspace virtual environment and ignores a system interpreter', () => {
+		if (process.platform === 'win32') {
+			assert.equal(virtualEnvRoot('C:\\work\\.venv\\Scripts\\python.exe'), 'C:\\work\\.venv');
+			return;
+		}
+		assert.equal(virtualEnvRoot('/work/.venv/bin/python'), '/work/.venv');
+		assert.equal(virtualEnvRoot('/work/venv/bin/python3'), '/work/venv');
+		assert.equal(virtualEnvRoot('/usr/bin/python3'), undefined);
+		assert.equal(virtualEnvRoot('python3'), undefined);
 	});
 });
 
@@ -107,6 +160,47 @@ describe('executeScratchpad', () => {
 		});
 		assert.match(text, /^exit_code: 1/);
 		assert.match(text, /boom/);
+	});
+
+	it('imports packages from the workspace .venv and not the project', async (t) => {
+		if (process.platform === 'win32' || !await pythonReady()) {
+			t.skip('workspace venv fixture needs python3 -P on Unix');
+			return;
+		}
+		const workspace = await mkdtemp(join(tmpdir(), 'integrity-venv-workspace-'));
+		try {
+			const sitePackages = await createWorkspaceVenv(workspace);
+			if (!sitePackages) {
+				t.skip('python3 -m venv is unavailable');
+				return;
+			}
+			await writeFile(join(sitePackages, 'venv_marker.py'), 'VALUE = 7\n');
+			await writeFile(join(workspace, 'workspace_marker.py'), 'VALUE = 123\n');
+			const text = await executeScratchpad({
+				code: [
+					'import os',
+					'import venv_marker',
+					'print(venv_marker.VALUE)',
+					'print(os.environ.get("VIRTUAL_ENV", ""))',
+					'try:',
+					'    import workspace_marker',
+					'    print(workspace_marker.VALUE)',
+					'except ModuleNotFoundError:',
+					'    print("not-imported")',
+				].join('\n'),
+				workspaceRoots: [workspace],
+				baseEnv: { ...process.env, PYTHONPATH: workspace },
+			});
+			assert.match(text, /^exit_code: 0/);
+			assert.match(text, new RegExp(`python: ${workspace}/\\.venv/bin/python`));
+			const stdout = stdoutOf(text);
+			assert.match(stdout, /^7\n/);
+			assert.match(stdout, new RegExp(`${workspace}/\\.venv`));
+			assert.match(stdout, /not-imported/);
+			assert.doesNotMatch(stdout, /123/);
+		} finally {
+			await rm(workspace, { recursive: true, force: true });
+		}
 	});
 
 	it('does not import the workspace and deletes the temp directory', async (t) => {

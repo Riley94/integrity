@@ -9,6 +9,7 @@ import { rejectionForMisroutedToolCall } from './browserToolGuard';
 import { loadAgentRules, type CodebaseSearchIndex } from './lmTools';
 import { extractPathFromInput } from './pathPolicy';
 import { scratchpadApprovalPreview } from './scratchpad';
+import { applyScratchpadHostRule, holdReplyForScratchpad } from './scratchpadHostRule';
 import { inferModeKind, IntegrityToolName, selectToolsForJev, type AgentModeKind } from './toolNames';
 import { parseModelId } from '../providers/modelId';
 import { ensureOllamaModelReady, isOllamaModelReady, ollamaModelNotReadyMessage } from '../ollama/ensureOllamaModel';
@@ -147,36 +148,46 @@ export async function runChatAgentLoop(
 
 	let tools = collectEnabledTools(request, mode);
 	let selectedTools: SelectedToolPrompt[] = [];
+	let scratchpadRequired = false;
 	if (!tools.length) {
 		printJevDebug(stream, describeSkippedToolSurface('no tools were enabled'));
 	} else {
+		const catalog = tools;
+		let jevSelected: vscode.LanguageModelChatTool[] = [];
 		try {
 			stream.progress('Choosing tools with Jev…');
-			const trace = await selectToolSurface(request.prompt, mode, tools, token);
+			const trace = await selectToolSurface(request.prompt, mode, catalog, token);
 			printJevDebug(stream, formatJevDebug(trace.request, trace.text));
 			const selectedNames = new Set(trace.toolNames);
-			const matches = tools.filter(tool => selectedNames.has(tool.name));
-			if (matches.length) {
-				selectedTools = matches.map(tool => ({ name: tool.name, description: tool.description }));
-				tools = matches;
-				stream.progress(`Using ${matches.map(tool => tool.name).join(', ')}…`);
-			} else {
-				tools = [];
-				stream.progress('Answering without tools…');
-			}
+			jevSelected = catalog.filter(tool => selectedNames.has(tool.name));
 		} catch (err) {
 			if (isAbortError(err) || token.isCancellationRequested) {
 				return {};
 			}
 			const message = err instanceof Error ? err.message : String(err);
-			tools = [];
 			printJevDebug(stream, describeSkippedToolSurface(message));
+			jevSelected = [];
 		}
 		if (token.isCancellationRequested) {
 			return {};
 		}
+		const ruled = applyScratchpadHostRule(jevSelected, catalog, request.prompt);
+		scratchpadRequired = ruled.forced;
+		if (ruled.tools.length) {
+			selectedTools = ruled.tools.map(tool => ({ name: tool.name, description: tool.description }));
+			tools = ruled.tools;
+			const keptByHost = scratchpadRequired
+				&& !jevSelected.some(tool => tool.name === IntegrityToolName.Scratchpad);
+			if (keptByHost) {
+				printJevDebug(stream, 'Jev tools\ndecision: host rule kept integrity_scratchpad');
+			}
+			stream.progress(`Using ${ruled.tools.map(tool => tool.name).join(', ')}…`);
+		} else {
+			tools = [];
+			stream.progress('Answering without tools…');
+		}
 	}
-	const system = buildSystemPrompt(mode, agentRules, extraContext, selectedTools);
+	const system = buildSystemPrompt(mode, agentRules, extraContext, selectedTools, scratchpadRequired);
 	const maxSteps = vscode.workspace.getConfiguration('integrity.ai').get<number>('agent.maxSteps', DEFAULT_MAX_STEPS);
 
 	const messages: vscode.LanguageModelChatMessage[] = [
@@ -194,6 +205,9 @@ export async function runChatAgentLoop(
 		}
 
 		stream.progress(step === 0 ? 'Thinking…' : `Continuing (step ${step + 1})…`);
+		// Prose written before the scratchpad runs is not the answer, so it stays off the chat stream.
+		const scratchpadPending = scratchpadRequired
+			&& !turnToolCalls.some(call => call.name === IntegrityToolName.Scratchpad);
 
 		let response: vscode.LanguageModelChatResponse;
 		try {
@@ -219,7 +233,9 @@ export async function runChatAgentLoop(
 				if (part instanceof vscode.LanguageModelTextPart) {
 					assistantParts.push(part);
 					textOut += part.value;
-					stream.markdown(part.value);
+					if (!scratchpadPending) {
+						stream.markdown(part.value);
+					}
 				} else if (part instanceof vscode.LanguageModelToolCallPart) {
 					assistantParts.push(part);
 					toolCalls.push(part);
@@ -262,7 +278,10 @@ export async function runChatAgentLoop(
 				return {};
 			}
 			printJevDebug(stream, formatJevDebug(checked.request, checked.text));
-			const decision = checked.decision;
+			const decision = holdReplyForScratchpad(checked.decision, scratchpadPending);
+			if (decision !== checked.decision) {
+				printJevDebug(stream, `Jev completion\ndecision: continue\nmessage: ${decision.message ?? ''}`);
+			}
 			if (decision.action === 'exit') {
 				return {};
 			}
@@ -271,7 +290,11 @@ export async function runChatAgentLoop(
 				return {};
 			}
 			completionUnavailableStreak = decision.unavailable ? completionUnavailableStreak + 1 : 0;
-			stream.progress(decision.unavailable ? 'Completion check unavailable, continuing…' : 'Jev asked for another pass…');
+			stream.progress(decision !== checked.decision
+				? 'Waiting for the scratchpad before answering…'
+				: decision.unavailable
+					? 'Completion check unavailable, continuing…'
+					: 'Jev asked for another pass…');
 			messages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
 			messages.push(vscode.LanguageModelChatMessage.User(decision.message ?? COMPLETION_UNVERIFIED_MESSAGE));
 			continue;
