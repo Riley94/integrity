@@ -40,7 +40,7 @@ export const EDIT_TOOLS: ReadonlySet<string> = new Set([
 
 /**
  * Python scratchpad. Allowed in Ask and Agent so a question can be answered by running code.
- * It is not in {@link READ_ONLY_TOOLS}, so the call still waits on Jev approval.
+ * It is not in {@link READ_ONLY_TOOLS}, so the call still follows the edit approval setting.
  * Edit mode stays file-only.
  */
 export const SCRATCHPAD_TOOLS: ReadonlySet<string> = new Set([

@@ -7,13 +7,12 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { access, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import {
 	SCRATCHPAD_MAX_CODE_CHARS,
 	executeScratchpad,
 	scratchpadApprovalPreview,
-	scratchpadEnv,
 	virtualEnvRoot,
 	workspacePythonCandidates,
 } from '../scratchpad';
@@ -55,29 +54,17 @@ function pythonReady(): Promise<boolean> {
 	});
 }
 
-describe('scratchpadEnv', () => {
-	it('drops workspace roots from PYTHONPATH and leaves other entries', () => {
-		const workspace = '/tmp/integrity-workspace';
-		const other = '/opt/other';
-		const base = {
-			PYTHONPATH: `${workspace}${delimiter}${other}${delimiter}${workspace}-other`,
-			PYTHONSTARTUP: '/tmp/startup.py',
-		};
-		const env = scratchpadEnv([workspace], base);
-		assert.equal(env.PYTHONPATH, `${other}${delimiter}${workspace}-other`);
-		assert.equal(env.PYTHONSTARTUP, undefined);
-		assert.equal(env.PYTHONUNBUFFERED, '1');
-		assert.equal(base.PYTHONSTARTUP, '/tmp/startup.py');
+function sandboxReady(): Promise<boolean> {
+	return new Promise(resolve => {
+		const child = spawn('bwrap', ['--version'], { stdio: 'ignore' });
+		child.on('error', () => resolve(false));
+		child.on('close', code => resolve(code === 0));
 	});
+}
 
-	it('removes PYTHONPATH when every entry is inside the workspace', () => {
-		const workspace = '/tmp/integrity-workspace';
-		const env = scratchpadEnv([workspace], {
-			PYTHONPATH: `${workspace}${delimiter}${workspace}/src`,
-		});
-		assert.equal(env.PYTHONPATH, undefined);
-	});
-});
+async function runtimeReady(): Promise<boolean> {
+	return await pythonReady() && await sandboxReady();
+}
 
 describe('workspacePythonCandidates', () => {
 	it('checks .venv before venv', () => {
@@ -136,9 +123,19 @@ describe('executeScratchpad', () => {
 		assert.match(text, /^Scratchpad failed:/);
 	});
 
+	it('does not run the snippet when bubblewrap is missing', async () => {
+		const text = await executeScratchpad({
+			code: 'print("should-not-run")\n',
+			pythonCommand: 'python3',
+			bwrapCommand: 'integrity-scratchpad-missing-bwrap',
+		});
+		assert.match(text, /bubblewrap/);
+		assert.doesNotMatch(text, /should-not-run/);
+	});
+
 	it('returns stdout from a snippet', async (t) => {
-		if (!await pythonReady()) {
-			t.skip('python3 -P is unavailable');
+		if (!await runtimeReady()) {
+			t.skip('python3 -P or bwrap is unavailable');
 			return;
 		}
 		const text = await executeScratchpad({
@@ -150,8 +147,8 @@ describe('executeScratchpad', () => {
 	});
 
 	it('returns a non-zero exit and stderr when the snippet fails', async (t) => {
-		if (!await pythonReady()) {
-			t.skip('python3 -P is unavailable');
+		if (!await runtimeReady()) {
+			t.skip('python3 -P or bwrap is unavailable');
 			return;
 		}
 		const text = await executeScratchpad({
@@ -163,8 +160,8 @@ describe('executeScratchpad', () => {
 	});
 
 	it('imports packages from the workspace .venv and not the project', async (t) => {
-		if (process.platform === 'win32' || !await pythonReady()) {
-			t.skip('workspace venv fixture needs python3 -P on Unix');
+		if (process.platform !== 'linux' || !await runtimeReady()) {
+			t.skip('workspace venv fixture needs python3 -P and bwrap on Linux');
 			return;
 		}
 		const workspace = await mkdtemp(join(tmpdir(), 'integrity-venv-workspace-'));
@@ -183,19 +180,24 @@ describe('executeScratchpad', () => {
 					'print(venv_marker.VALUE)',
 					'print(os.environ.get("VIRTUAL_ENV", ""))',
 					'try:',
+					'    open(os.environ["VIRTUAL_ENV"] + "/probe-write", "w").write("x")',
+					'    print("venv-writable")',
+					'except OSError:',
+					'    print("venv-readonly")',
+					'try:',
 					'    import workspace_marker',
 					'    print(workspace_marker.VALUE)',
 					'except ModuleNotFoundError:',
 					'    print("not-imported")',
 				].join('\n'),
 				workspaceRoots: [workspace],
-				baseEnv: { ...process.env, PYTHONPATH: workspace },
 			});
 			assert.match(text, /^exit_code: 0/);
 			assert.match(text, new RegExp(`python: ${workspace}/\\.venv/bin/python`));
 			const stdout = stdoutOf(text);
 			assert.match(stdout, /^7\n/);
 			assert.match(stdout, new RegExp(`${workspace}/\\.venv`));
+			assert.match(stdout, /venv-readonly/);
 			assert.match(stdout, /not-imported/);
 			assert.doesNotMatch(stdout, /123/);
 		} finally {
@@ -204,17 +206,39 @@ describe('executeScratchpad', () => {
 	});
 
 	it('does not import the workspace and deletes the temp directory', async (t) => {
-		if (!await pythonReady()) {
-			t.skip('python3 -P is unavailable');
+		if (!await runtimeReady()) {
+			t.skip('python3 -P or bwrap is unavailable');
 			return;
 		}
 		const workspace = await mkdtemp(join(tmpdir(), 'integrity-workspace-'));
+		const marker = join(workspace, 'workspace_marker.py');
+		const previous = process.env.INTEGRITY_SCRATCHPAD_CANARY;
+		process.env.INTEGRITY_SCRATCHPAD_CANARY = 'top-secret';
 		try {
-			await writeFile(join(workspace, 'workspace_marker.py'), 'VALUE = 123\n');
+			await writeFile(marker, 'VALUE = 123\n');
 			const text = await executeScratchpad({
 				code: [
 					'import os',
 					'print(os.getcwd())',
+					'print(os.environ.get("INTEGRITY_SCRATCHPAD_CANARY", "no-canary"))',
+					'try:',
+					`    open(${JSON.stringify(marker)}).read()`,
+					'    print("workspace-visible")',
+					'except OSError:',
+					'    print("workspace-hidden")',
+					'try:',
+					'    open("/etc/passwd").read(1)',
+					'    print("etc-visible")',
+					'except OSError:',
+					'    print("etc-hidden")',
+					'try:',
+					'    import socket',
+					'    s = socket.socket()',
+					'    s.settimeout(1)',
+					'    s.connect(("1.1.1.1", 80))',
+					'    print("net-open")',
+					'except OSError:',
+					'    print("net-closed")',
 					'try:',
 					'    import workspace_marker',
 					'    print(workspace_marker.VALUE)',
@@ -223,24 +247,33 @@ describe('executeScratchpad', () => {
 				].join('\n'),
 				pythonCommand: 'python3',
 				workspaceRoots: [workspace],
-				baseEnv: { ...process.env, PYTHONPATH: workspace },
 			});
 			assert.match(text, /^exit_code: 0/);
 			const stdout = stdoutOf(text);
 			assert.match(stdout, /not-imported/);
+			assert.match(stdout, /no-canary/);
+			assert.match(stdout, /workspace-hidden/);
+			assert.match(stdout, /etc-hidden/);
+			assert.match(stdout, /net-closed/);
 			assert.doesNotMatch(stdout, /123/);
+			assert.doesNotMatch(stdout, /top-secret/);
 			const cwd = stdout.split('\n')[0];
 			assert.match(cwd, /integrity-scratchpad-/);
 			assert.notEqual(cwd, workspace);
 			await assert.rejects(access(cwd));
 		} finally {
+			if (previous === undefined) {
+				delete process.env.INTEGRITY_SCRATCHPAD_CANARY;
+			} else {
+				process.env.INTEGRITY_SCRATCHPAD_CANARY = previous;
+			}
 			await rm(workspace, { recursive: true, force: true });
 		}
 	});
 
 	it('times out a snippet that does not finish', async (t) => {
-		if (!await pythonReady()) {
-			t.skip('python3 -P is unavailable');
+		if (!await runtimeReady()) {
+			t.skip('python3 -P or bwrap is unavailable');
 			return;
 		}
 		const text = await executeScratchpad({
@@ -253,8 +286,8 @@ describe('executeScratchpad', () => {
 	});
 
 	it('cancels when the signal aborts', async (t) => {
-		if (!await pythonReady()) {
-			t.skip('python3 -P is unavailable');
+		if (!await runtimeReady()) {
+			t.skip('python3 -P or bwrap is unavailable');
 			return;
 		}
 		const abort = new AbortController();
@@ -270,8 +303,8 @@ describe('executeScratchpad', () => {
 	});
 
 	it('truncates oversized output', async (t) => {
-		if (!await pythonReady()) {
-			t.skip('python3 -P is unavailable');
+		if (!await runtimeReady()) {
+			t.skip('python3 -P or bwrap is unavailable');
 			return;
 		}
 		const text = await executeScratchpad({

@@ -7,7 +7,8 @@ import { spawn } from 'child_process';
 import { constants } from 'fs';
 import { access, mkdtemp, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
-import { delimiter, join, resolve, sep } from 'path';
+import { join, resolve, sep } from 'path';
+import { prepareScratchpadSandbox, type ScratchpadSandboxLaunch } from './scratchpadSandbox';
 
 /** Wall-clock limit for one snippet. Long enough to compute, short enough to fail closed. */
 export const SCRATCHPAD_TIMEOUT_MS = 30_000;
@@ -34,16 +35,16 @@ export interface ScratchpadResult {
 export interface RunPythonScratchpadOptions {
 	code: string;
 	/**
-	 * Workspace roots. The first root that contains `.venv` or `venv` supplies the interpreter,
-	 * so packages installed there can be imported. Every root is still removed from PYTHONPATH,
-	 * so the project itself stays off sys.path.
+	 * Workspace roots. The first root that contains `.venv` or `venv` supplies the interpreter.
+	 * That environment is mounted read-only inside the sandbox. The rest of the workspace is not.
 	 */
 	workspaceRoots?: readonly string[];
 	timeoutMs?: number;
 	maxOutputChars?: number;
 	/** Interpreter to spawn. Production resolves `python3`/`python`; tests inject one. */
 	pythonCommand?: string;
-	baseEnv?: NodeJS.ProcessEnv;
+	/** Sandbox launcher. Production uses `bwrap`. A missing launcher fails the run. */
+	bwrapCommand?: string;
 	signal?: AbortSignal;
 }
 
@@ -64,39 +65,6 @@ export function scratchpadApprovalPreview(code: string): string {
 		? trimmed.slice(0, PREVIEW_LIMIT) + '…'
 		: trimmed;
 	return `Run Python scratchpad?\n${body}`;
-}
-
-/**
- * Environment for a scratchpad process.
- * The workspace is stripped from PYTHONPATH, and PYTHONSTARTUP is dropped so a startup hook
- * cannot put the project back on sys.path. The interpreter's own site-packages stay available,
- * which is how a workspace virtual environment exposes installed packages.
- * PYTHONUNBUFFERED is set so a timeout still captures prints.
- */
-export function scratchpadEnv(
-	workspaceRoots: readonly string[],
-	baseEnv: NodeJS.ProcessEnv = process.env,
-): NodeJS.ProcessEnv {
-	const env: NodeJS.ProcessEnv = { ...baseEnv, PYTHONUNBUFFERED: '1' };
-	delete env.PYTHONSTARTUP;
-	const pythonPath = env.PYTHONPATH;
-	if (pythonPath === undefined) {
-		return env;
-	}
-	const roots = workspaceRoots.map(root => resolve(root));
-	const kept = pythonPath.split(delimiter).filter(entry => {
-		if (!entry) {
-			return false;
-		}
-		const resolved = resolve(entry);
-		return !roots.some(root => resolved === root || resolved.startsWith(root + sep));
-	});
-	if (kept.length) {
-		env.PYTHONPATH = kept.join(delimiter);
-	} else {
-		delete env.PYTHONPATH;
-	}
-	return env;
 }
 
 /**
@@ -142,21 +110,33 @@ export function formatScratchpadResult(result: ScratchpadResult): string {
 }
 
 /**
- * Execute `code` with `python -P` in a temporary directory, then delete that directory.
- * `-P` keeps the script directory and cwd off sys.path (Python 3.11+). Combined with
- * {@link scratchpadEnv}, the workspace is not importable. A workspace `.venv` or `venv`
- * is still the interpreter, so its site-packages are.
+ * Execute `code` with `python -P` inside a bubblewrap sandbox, then delete the scratch directory.
+ * The sandbox has no network and an empty filesystem except the standard library, the selected
+ * virtual environment mounted read-only, and the scratch directory. The host environment is not passed in.
+ * Setup failure does not run the snippet on the host.
  */
 export async function runPythonScratchpad(options: RunPythonScratchpadOptions): Promise<ScratchpadResult> {
 	if (options.signal?.aborted) {
 		return cancelledResult();
+	}
+	if (process.platform !== 'linux') {
+		throw new Error('Scratchpad isolation requires Linux bubblewrap (bwrap).');
 	}
 	const dir = await mkdtemp(join(tmpdir(), 'integrity-scratchpad-'));
 	try {
 		const script = join(dir, 'snippet.py');
 		await writeFile(script, options.code, 'utf8');
 		const python = options.pythonCommand ?? await resolvePythonCommand(options.workspaceRoots ?? []);
-		return await spawnPython(python, script, dir, options);
+		const virtualEnv = virtualEnvRoot(python);
+		const launch = await prepareScratchpadSandbox({
+			python,
+			script,
+			scratchDir: dir,
+			workspaceRoots: options.workspaceRoots,
+			virtualEnv,
+			bwrap: options.bwrapCommand,
+		});
+		return await spawnPython(launch, dir, options);
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}
@@ -237,18 +217,13 @@ function pythonSupportsSafePath(command: string): Promise<boolean> {
 }
 
 function spawnPython(
-	python: string,
-	script: string,
+	launch: ScratchpadSandboxLaunch,
 	cwd: string,
 	options: RunPythonScratchpadOptions,
 ): Promise<ScratchpadResult> {
 	const timeoutMs = options.timeoutMs ?? SCRATCHPAD_TIMEOUT_MS;
 	const maxOutputChars = options.maxOutputChars ?? SCRATCHPAD_MAX_OUTPUT_CHARS;
-	const env = scratchpadEnv(options.workspaceRoots ?? [], options.baseEnv);
-	const virtualEnv = virtualEnvRoot(python);
-	if (virtualEnv) {
-		env.VIRTUAL_ENV = virtualEnv;
-	}
+	const [command, ...args] = launch.args;
 
 	return new Promise((resolveResult, reject) => {
 		let stdout = '';
@@ -258,9 +233,8 @@ function spawnPython(
 		let cancelled = false;
 		let settled = false;
 
-		const child = spawn(python, ['-P', script], {
+		const child = spawn(command, args, {
 			cwd,
-			env,
 			stdio: ['ignore', 'pipe', 'pipe'],
 			windowsHide: true,
 		});
@@ -321,8 +295,19 @@ function spawnPython(
 			stderr = take(stderr, chunk);
 		});
 		child.on('error', err => {
+			const code = (err as NodeJS.ErrnoException).code;
 			// kill() reports ESRCH when the process has already exited. That is not a failed run.
-			if ((err as NodeJS.ErrnoException).code === 'ESRCH') {
+			if (code === 'ESRCH') {
+				return;
+			}
+			if (code === 'ENOENT') {
+				if (settled) {
+					return;
+				}
+				settled = true;
+				clearTimeout(timer);
+				options.signal?.removeEventListener('abort', onAbort);
+				reject(new Error(`Scratchpad isolation requires bubblewrap (${command}), and it was not found.`));
 				return;
 			}
 			if (settled) {
@@ -335,7 +320,7 @@ function spawnPython(
 		});
 		child.on('close', code => {
 			finish({
-				python,
+				python: launch.python,
 				stdout,
 				stderr,
 				exitCode: timedOut || cancelled ? null : code,
