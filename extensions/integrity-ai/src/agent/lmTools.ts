@@ -16,6 +16,7 @@ import {
 	resolveAgentFilePath,
 	type PatchHunk,
 } from './pathPolicy';
+import { executeScratchpad } from './scratchpad';
 import { IntegrityToolName } from './toolNames';
 import { beginCancellation, rankChunksForContext } from '../jev/forks';
 import { isAbortError } from '../jev/jevClient';
@@ -504,6 +505,27 @@ class GetErrorsTool implements vscode.LanguageModelTool<{ path?: string }> {
 	}
 }
 
+class ScratchpadTool implements vscode.LanguageModelTool<{ code: string }> {
+	async invoke(
+		options: vscode.LanguageModelToolInvocationOptions<{ code: string }>,
+		token: vscode.CancellationToken,
+	): Promise<vscode.LanguageModelToolResult> {
+		const code = typeof options.input?.code === 'string' ? options.input.code : '';
+		const roots = (vscode.workspace.workspaceFolders ?? []).map(folder => folder.uri.fsPath);
+		const abort = new AbortController();
+		const subscription = token.onCancellationRequested(() => abort.abort());
+		try {
+			return textResult(await executeScratchpad({
+				code,
+				workspaceRoots: roots,
+				signal: abort.signal,
+			}));
+		} finally {
+			subscription.dispose();
+		}
+	}
+}
+
 /**
  * Register Integrity language model tools.
  */
@@ -521,6 +543,7 @@ export function registerIntegrityTools(
 		vscode.lm.registerTool(IntegrityToolName.FileSearch, new FileSearchTool()),
 		vscode.lm.registerTool(IntegrityToolName.CodebaseSearch, new CodebaseSearchTool(index)),
 		vscode.lm.registerTool(IntegrityToolName.GetErrors, new GetErrorsTool()),
+		vscode.lm.registerTool(IntegrityToolName.Scratchpad, new ScratchpadTool()),
 	);
 }
 

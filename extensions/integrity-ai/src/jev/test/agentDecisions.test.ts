@@ -27,6 +27,7 @@ import {
 	interpretRetrieval,
 	interpretToolSurface,
 	isMutatingTool,
+	isTerminalTool,
 	offeredToolChoices,
 	rejectionForUnselectedTool,
 	TOOL_REPLY_CHOICE,
@@ -532,7 +533,9 @@ describe('interpretApproval', () => {
 		assert.equal(isMutatingTool('integrity_read_file'), false);
 		assert.equal(isMutatingTool('integrity_codebase_search'), false);
 		assert.equal(isMutatingTool('integrity_apply_patch'), true);
+		assert.equal(isMutatingTool('integrity_scratchpad'), true);
 		assert.equal(isMutatingTool('run_in_terminal'), true);
+		assert.equal(isTerminalTool('integrity_scratchpad'), false);
 	});
 
 	it('blocks mutating calls when Jev does not answer', () => {
@@ -570,6 +573,28 @@ describe('interpretApproval', () => {
 		};
 		assert.equal(interpretApproval({ ...shared, answer: noul(0.69) }).action, 'invoke');
 		assert.equal(interpretApproval({ ...shared, answer: noul(0.7) }).action, 'prompt');
+	});
+
+	it('uses the edit approval floor for the scratchpad', () => {
+		const prompted = interpretApproval({
+			toolName: 'integrity_scratchpad',
+			answer: noul(0.1),
+			unavailable: false,
+			approvalThreshold: 0.7,
+			requireEditApproval: true,
+			requireTerminalApproval: false,
+		});
+		assert.equal(prompted.action, 'prompt');
+
+		const invoked = interpretApproval({
+			toolName: 'integrity_scratchpad',
+			answer: noul(0.1),
+			unavailable: false,
+			approvalThreshold: 0.7,
+			requireEditApproval: false,
+			requireTerminalApproval: true,
+		});
+		assert.equal(invoked.action, 'invoke');
 	});
 
 	it('uses the terminal approval floor for terminal tools', () => {

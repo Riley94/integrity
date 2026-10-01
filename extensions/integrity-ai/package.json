@@ -459,6 +459,24 @@
           }
         },
         "tags": ["integrity"]
+      },
+      {
+        "name": "integrity_scratchpad",
+        "toolReferenceName": "scratchpad",
+        "displayName": "Python Scratchpad",
+        "modelDescription": "Run a short Python 3 snippet when the answer depends on executing code, such as computing a value or checking how a snippet behaves. The process cwd is a temporary directory. Python is started with -P, and the workspace is removed from PYTHONPATH, so the snippet cannot import project modules. Returns stdout, stderr, and the exit code. Do not use this to create or edit workspace files.",
+        "icon": "$(beaker)",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "string",
+              "description": "Python source to execute. Print the result to stdout. The workspace is not on sys.path."
+            }
+          },
+          "required": ["code"]
+        },
+        "tags": ["integrity"]
       }
     ],
     "commands": [

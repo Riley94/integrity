@@ -8,6 +8,7 @@ import { buildSystemPrompt, type SelectedToolPrompt } from './agentPrompt';
 import { rejectionForMisroutedToolCall } from './browserToolGuard';
 import { loadAgentRules, type CodebaseSearchIndex } from './lmTools';
 import { extractPathFromInput } from './pathPolicy';
+import { scratchpadApprovalPreview } from './scratchpad';
 import { inferModeKind, IntegrityToolName, selectToolsForJev, type AgentModeKind } from './toolNames';
 import { parseModelId } from '../providers/modelId';
 import { ensureOllamaModelReady, isOllamaModelReady, ollamaModelNotReadyMessage } from '../ollama/ensureOllamaModel';
@@ -505,6 +506,8 @@ function approvalPrompt(name: string, input: unknown): string {
 			return path ? `Apply unique replace in ${path}?` : 'Apply unique replace?';
 		case IntegrityToolName.ApplyPatch:
 			return path ? `Apply patch to ${path}?` : 'Apply patch?';
+		case IntegrityToolName.Scratchpad:
+			return scratchpadApprovalPreview(codeFromInput(input) ?? '');
 		default: {
 			if (isTerminalTool(name)) {
 				const command = commandFromInput(input);
@@ -513,6 +516,14 @@ function approvalPrompt(name: string, input: unknown): string {
 			return `Run ${name}?`;
 		}
 	}
+}
+
+function codeFromInput(input: unknown): string | undefined {
+	if (!input || typeof input !== 'object' || Array.isArray(input)) {
+		return undefined;
+	}
+	const code = (input as Record<string, unknown>).code;
+	return typeof code === 'string' ? code : undefined;
 }
 
 function commandFromInput(input: unknown): string | undefined {
