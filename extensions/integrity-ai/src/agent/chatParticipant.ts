@@ -28,6 +28,7 @@ import {
 	type SessionFileRecord,
 	type SessionHistoryTurn,
 } from './sessionFiles';
+import { buildThinkingRequest, THINKING_PART_ID, THINKING_SYSTEM_PROMPT, thinkingContextMessage } from './thinkingPass';
 import { EDIT_TOOLS, inferModeKind, IntegrityToolName, selectToolsForJev, type AgentModeKind } from './toolNames';
 import { parseModelId } from '../providers/modelId';
 import { ensureOllamaModelReady, isOllamaModelReady, ollamaModelNotReadyMessage } from '../ollama/ensureOllamaModel';
@@ -259,12 +260,23 @@ export async function runChatAgentLoop(
 		);
 	}
 
+	const thinking = await collectThinkingTrace(model, request.prompt, stream, token);
+	if (thinking.cancelled) {
+		return {};
+	}
+	const thinkingNote = thinkingContextMessage(thinking.trace);
+	if (thinkingNote) {
+		messages.push(vscode.LanguageModelChatMessage.User(thinkingNote));
+	}
+
 	for (let step = 0; step < maxSteps; step++) {
 		if (token.isCancellationRequested) {
 			return {};
 		}
 
-		stream.progress(step === 0 ? 'Thinking…' : `Continuing (step ${step + 1})…`);
+		if (step > 0) {
+			stream.progress(`Continuing (step ${step + 1})…`);
+		}
 		// Prose written before the scratchpad runs, or before changed files are reviewed, is not the answer.
 		const scratchpadPending = scratchpadRequired && !scratchpadRan;
 		const reviewPending = canReviewEdits && editReviewPending(reviewState);
@@ -358,6 +370,61 @@ export async function runChatAgentLoop(
 
 	stream.markdown(`\n\n_Agent reached max steps (${maxSteps})._`);
 	return finishTurn();
+}
+
+interface ThinkingTrace {
+	/** True when the user cancelled during the thinking call. The turn should stop. */
+	cancelled: boolean;
+	/** Model text. Empty when thinking failed or produced nothing, so the task still runs. */
+	trace: string;
+}
+
+/**
+ * Ask the model four questions about the request before tools are available.
+ * Deltas go to the Thinking box and are not the visible reply.
+ * A model or stream error returns an empty trace so the task still runs.
+ */
+async function collectThinkingTrace(
+	model: vscode.LanguageModelChat,
+	prompt: string,
+	stream: vscode.ChatResponseStream,
+	token: vscode.CancellationToken,
+): Promise<ThinkingTrace> {
+	if (token.isCancellationRequested) {
+		return { cancelled: true, trace: '' };
+	}
+
+	let response: vscode.LanguageModelChatResponse;
+	try {
+		response = await model.sendRequest([
+			vscode.LanguageModelChatMessage.User(`[System instructions]\n${THINKING_SYSTEM_PROMPT}`),
+			vscode.LanguageModelChatMessage.User(buildThinkingRequest(prompt)),
+		], {}, token);
+	} catch (err) {
+		if (isAbortError(err) || token.isCancellationRequested) {
+			return { cancelled: true, trace: '' };
+		}
+		return { cancelled: false, trace: '' };
+	}
+
+	let trace = '';
+	try {
+		for await (const part of response.stream) {
+			if (token.isCancellationRequested) {
+				return { cancelled: true, trace: '' };
+			}
+			if (part instanceof vscode.LanguageModelTextPart) {
+				trace += part.value;
+				stream.thinkingProgress({ id: THINKING_PART_ID, text: part.value });
+			}
+		}
+	} catch (err) {
+		if (isAbortError(err) || token.isCancellationRequested) {
+			return { cancelled: true, trace: '' };
+		}
+		return { cancelled: false, trace: '' };
+	}
+	return { cancelled: false, trace };
 }
 
 /**
