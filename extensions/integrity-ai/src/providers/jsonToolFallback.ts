@@ -143,3 +143,38 @@ export function applyJsonToolCallFallback(
 		toolCalls: [parsed.toolCall],
 	};
 }
+
+/**
+ * A tool call the model wrote as text instead of invoking.
+ * `parsed` is valid JSON. `unparsed` names a tool inside JSON that did not parse,
+ * which happens when code inside the arguments contains raw quotes.
+ */
+export type PrintedToolCall =
+	| { kind: 'parsed'; toolCall: ToolCall }
+	| { kind: 'unparsed'; name: string };
+
+const PRINTED_TOOL_NAME = /"(?:name|tool)"\s*:\s*"([^"\\]+)"/;
+
+/**
+ * Detect a tool call printed in the reply.
+ * A normal sentence that merely mentions a tool name is ignored.
+ */
+export function classifyPrintedToolCall(text: string): PrintedToolCall | undefined {
+	const parsed = parseJsonToolCall(text);
+	if (parsed) {
+		return { kind: 'parsed', toolCall: parsed.toolCall };
+	}
+	const name = text.match(PRINTED_TOOL_NAME)?.[1]?.trim();
+	if (!name) {
+		return undefined;
+	}
+	return { kind: 'unparsed', name };
+}
+
+/**
+ * Correction sent back when the model printed a tool call that could not be run.
+ * Names the tool so the next step invokes it instead of writing another JSON blob.
+ */
+export function printedToolCallMessage(name: string): string {
+	return `You printed a call to ${name} as text. That did not run. Call ${name} as a tool now. Do not print the call as JSON.`;
+}

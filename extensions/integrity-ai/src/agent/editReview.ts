@@ -61,7 +61,20 @@ export function holdReplyForEditReview(state: EditReviewState, canRead: boolean)
  */
 export function editReviewMessage(paths: readonly string[]): string {
 	const listed = paths.join('\n');
-	return 'Read these files with integrity_read_file and review your edits before answering. Fix anything that does not match the request. If you change a file, review that edit too. Your previous summary was not shown; after the review, answer the user.\n' + listed;
+	return 'Read these files with integrity_read_file and review your edits before answering. Fix anything that does not match the request by calling integrity_apply_patch or integrity_replace_string. Do not print the call as JSON. If you change a file, review that edit too. Your previous summary was not shown; after the review, answer the user.\n' + listed;
+}
+
+/**
+ * Keep the edit tools available so a review can fix a file it just wrote.
+ * Jev may have kept only the tool that created the file. A catalog that omitted
+ * an edit tool is unchanged. Returns `selected` itself when nothing is added.
+ */
+export function withReviewEditTools<T extends { name: string }>(selected: readonly T[], catalog: readonly T[]): readonly T[] {
+	const missing = catalog.filter(tool => EDIT_TOOLS.has(tool.name) && !selected.some(item => item.name === tool.name));
+	if (!missing.length) {
+		return selected;
+	}
+	return [...selected, ...missing];
 }
 
 /**

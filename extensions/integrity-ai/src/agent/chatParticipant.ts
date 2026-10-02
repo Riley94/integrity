@@ -12,6 +12,7 @@ import {
 	holdReplyForEditReview,
 	MAX_EDIT_REVIEWS,
 	noteToolResult,
+	withReviewEditTools,
 	withReviewReadTool,
 	type EditReviewState,
 } from './editReview';
@@ -48,6 +49,7 @@ import {
 	routeToolSurface,
 } from '../jev/forks';
 import { isAbortError } from '../jev/jevClient';
+import { classifyPrintedToolCall, printedToolCallMessage } from '../providers/jsonToolFallback';
 
 const DEFAULT_MAX_STEPS = 24;
 
@@ -247,17 +249,41 @@ export async function runChatAgentLoop(
 		return sessionFilesResult(writtenFiles);
 	}
 
-	// The system prompt names only the tools Jev kept. A review has to be allowed to call the read tool.
-	function grantReadFileForReview(): void {
-		const next = withReviewReadTool(tools, toolCatalog);
-		if (next === tools) {
-			return;
-		}
-		tools = [...next];
+	function syncSelectedTools(): void {
 		selectedTools = tools.map(tool => ({ name: tool.name, description: tool.description }));
 		messages[0] = vscode.LanguageModelChatMessage.User(
 			`[System instructions]\n${buildSystemPrompt(mode, agentRules, extraContext, selectedTools, scratchpadRequired, priorFiles, readBeforeEdit)}`,
 		);
+	}
+
+	// The system prompt names only the tools Jev kept. A review has to be allowed to read and fix.
+	function grantToolsForReview(): void {
+		const next = withReviewEditTools(withReviewReadTool(tools, toolCatalog), toolCatalog);
+		if (next === tools) {
+			return;
+		}
+		tools = [...next];
+		syncSelectedTools();
+	}
+
+	/**
+	 * An edit tool Jev left out can still run when the model is fixing a file.
+	 * Other tools stay on Jev's list. Returns false when this turn cannot offer `name`.
+	 */
+	function adoptEditTool(name: string): boolean {
+		if (tools.some(tool => tool.name === name)) {
+			return true;
+		}
+		if (!EDIT_TOOLS.has(name)) {
+			return false;
+		}
+		const found = toolCatalog.find(tool => tool.name === name);
+		if (!found) {
+			return false;
+		}
+		tools = [...tools, found];
+		syncSelectedTools();
+		return true;
 	}
 
 	const thinking = await collectThinkingTrace(model, request.prompt, stream, token);
@@ -322,6 +348,27 @@ export async function runChatAgentLoop(
 			return finishTurn();
 		}
 
+		if (!toolCalls.length && textOut.trim()) {
+			const printed = classifyPrintedToolCall(textOut);
+			const printedName = printed?.kind === 'parsed' ? printed.toolCall.name : printed?.name;
+			if (printed && printedName && adoptEditTool(printedName)) {
+				if (printed.kind === 'parsed') {
+					const call = new vscode.LanguageModelToolCallPart(
+						printed.toolCall.id,
+						printed.toolCall.name,
+						printed.toolCall.arguments,
+					);
+					assistantParts.push(call);
+					toolCalls.push(call);
+				} else {
+					stream.progress(`Calling \`${printedName}\` instead of printed JSON…`);
+					messages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
+					messages.push(vscode.LanguageModelChatMessage.User(printedToolCallMessage(printedName)));
+					continue;
+				}
+			}
+		}
+
 		if (!toolCalls.length) {
 			if (!textOut.trim()) {
 				stream.markdown('_No response from model._');
@@ -339,11 +386,15 @@ export async function runChatAgentLoop(
 				return finishTurn();
 			}
 			reviewState = review.state;
-			grantReadFileForReview();
+			grantToolsForReview();
 			stream.progress(`Reviewing changed files (${reviewState.reviews} of ${MAX_EDIT_REVIEWS})…`);
 			messages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
 			messages.push(vscode.LanguageModelChatMessage.User(review.message));
 			continue;
+		}
+
+		for (const call of toolCalls) {
+			adoptEditTool(call.name);
 		}
 
 		if (toolCalls.some(call => call.name === IntegrityToolName.Scratchpad)) {
