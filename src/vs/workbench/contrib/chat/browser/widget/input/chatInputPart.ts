@@ -2996,10 +2996,9 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 		// Re-render when language models arrive (needed on reload — model
 		// metadata providing context window size may not be registered yet).
 		store.add(this.languageModelsService.onDidChangeLanguageModels(() => {
-			const lastRequest = model.lastRequest;
-			if (lastRequest?.modelId) {
-				this.contextUsageWidget?.update(lastRequest);
-			}
+			// Model metadata often arrives after the input is created. Refresh even
+			// when the session has no request yet, or the ring stays hidden.
+			this.contextUsageWidget?.update(model.lastRequest);
 		}));
 
 		// Initial update

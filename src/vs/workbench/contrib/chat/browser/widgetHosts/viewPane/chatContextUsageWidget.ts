@@ -80,8 +80,10 @@ export function isSameContextUsageData(a: IChatContextUsageData | undefined, b: 
 }
 
 /**
- * A reusable circular progress indicator that displays a ring.
- * The ring fills clockwise from the top based on the percentage value.
+ * Radial context meter: a thin ring that fills clockwise from the top.
+ *
+ * Geometry matches the composer token ring (15px box, 2px stroke, 1px inset)
+ * so a small usage share still reads as an arc instead of a thick pie.
  */
 export class CircularProgressIndicator {
 
@@ -90,31 +92,38 @@ export class CircularProgressIndicator {
 	private readonly progressCircle: SVGCircleElement;
 	private readonly circumference: number;
 
-	private static readonly CENTER_X = 18;
-	private static readonly CENTER_Y = 18;
-	private static readonly RADIUS = 14;
+	/** Outer box of the ring, in SVG user units (also the rendered pixel size). */
+	private static readonly SIZE = 15;
+	private static readonly STROKE_WIDTH = 2;
 
 	constructor() {
-		const r = CircularProgressIndicator.RADIUS;
-		this.circumference = 2 * Math.PI * r;
+		const size = CircularProgressIndicator.SIZE;
+		const stroke = CircularProgressIndicator.STROKE_WIDTH;
+		// Inset by 1px so the round caps are not clipped by the viewBox.
+		const radius = (size - stroke) / 2 - 1;
+		const center = size / 2;
+		this.circumference = 2 * Math.PI * radius;
 
 		this.domNode = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-		this.domNode.setAttribute('viewBox', '0 0 36 36');
+		this.domNode.setAttribute('viewBox', `0 0 ${size} ${size}`);
+		this.domNode.setAttribute('width', String(size));
+		this.domNode.setAttribute('height', String(size));
 		this.domNode.classList.add('circular-progress');
 
-		// Background circle
 		const bgCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-		bgCircle.setAttribute('cx', String(CircularProgressIndicator.CENTER_X));
-		bgCircle.setAttribute('cy', String(CircularProgressIndicator.CENTER_Y));
-		bgCircle.setAttribute('r', String(r));
+		bgCircle.setAttribute('cx', String(center));
+		bgCircle.setAttribute('cy', String(center));
+		bgCircle.setAttribute('r', String(radius));
+		bgCircle.setAttribute('stroke-width', String(stroke));
 		bgCircle.classList.add('progress-bg');
 		this.domNode.appendChild(bgCircle);
 
-		// Progress arc (stroke-based ring)
 		this.progressCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-		this.progressCircle.setAttribute('cx', String(CircularProgressIndicator.CENTER_X));
-		this.progressCircle.setAttribute('cy', String(CircularProgressIndicator.CENTER_Y));
-		this.progressCircle.setAttribute('r', String(r));
+		this.progressCircle.setAttribute('cx', String(center));
+		this.progressCircle.setAttribute('cy', String(center));
+		this.progressCircle.setAttribute('r', String(radius));
+		this.progressCircle.setAttribute('stroke-width', String(stroke));
+		this.progressCircle.setAttribute('stroke-linecap', 'round');
 		this.progressCircle.classList.add('progress-arc');
 		this.progressCircle.setAttribute('stroke-dasharray', String(this.circumference));
 		this.progressCircle.setAttribute('stroke-dashoffset', String(this.circumference));
@@ -134,8 +143,8 @@ export class CircularProgressIndicator {
 
 /**
  * Widget that displays the context/token usage for the current chat session.
- * Shows a circular progress icon that expands on hover/focus to show token counts,
- * and on click shows the detailed context usage widget.
+ * Shows a radial ring with the used percentage beside it, and on click shows
+ * the detailed context usage widget.
  */
 export class ChatContextUsageWidget extends Disposable {
 
@@ -198,13 +207,13 @@ export class ChatContextUsageWidget extends Disposable {
 		this.domNode.setAttribute('role', 'button');
 		this.domNode.setAttribute('aria-label', localize('contextUsageLabel', "Context window usage"));
 
-		// Icon container (always visible, contains the pie chart)
+		// Percentage sits to the left of the ring and stays visible, matching the
+		// composer context meter rather than revealing the number only on hover.
+		this.percentageLabel = this.domNode.appendChild($('.percentage-label'));
+
 		const iconContainer = this.domNode.appendChild($('.icon-container'));
 		this.progressIndicator = new CircularProgressIndicator();
 		iconContainer.appendChild(this.progressIndicator.domNode);
-
-		// Percentage label (visible on hover/focus)
-		this.percentageLabel = this.domNode.appendChild($('.percentage-label'));
 
 		// Track context usage opened state
 		this._contextUsageOpenedKey = ChatContextKeys.contextUsageHasBeenOpened.bindTo(this.contextKeyService);
@@ -313,16 +322,16 @@ export class ChatContextUsageWidget extends Disposable {
 		this._currentModelId = undefined;
 
 		if (!lastRequest) {
-			// New/empty chat session clear everything
-			this._currentData.set(undefined, undefined);
-			this.hide();
+			// No turn yet. Still show the ring for the selected model so the meter
+			// is visible before the first response reports token usage.
+			this.renderEmptyWindow();
 			return;
 		}
 
 		if (!lastRequest.response || !lastRequest.modelId) {
 			// Pending request keep old data visible if available
 			if (!this._currentData.get()) {
-				this.hide();
+				this.renderEmptyWindow();
 			}
 			return;
 		}
@@ -364,6 +373,8 @@ export class ChatContextUsageWidget extends Disposable {
 			const affectsDisplayedModel = this._currentModelId === modelId || this._selectedModelId === modelId;
 			if (this._currentResponse && this._currentModelId && affectsDisplayedModel) {
 				this.updateFromResponse(this._currentResponse, this._currentModelId);
+			} else if (!this._currentResponse && affectsDisplayedModel) {
+				this.renderEmptyWindow();
 			}
 		});
 	}
@@ -381,6 +392,8 @@ export class ChatContextUsageWidget extends Disposable {
 		this._selectedModelId = modelId;
 		if (this._currentResponse && this._currentModelId) {
 			this.updateFromResponse(this._currentResponse, this._currentModelId);
+		} else {
+			this.renderEmptyWindow();
 		}
 	}
 
@@ -425,18 +438,51 @@ export class ChatContextUsageWidget extends Disposable {
 		// immediately; the numerator (usage) still comes from the last response. A meta-model such as "auto" has no
 		// context window of its own, so fall back to the model that actually served the request (see issue #321781).
 		const contextWindow = this.resolveContextWindow(this._selectedModelId) ?? this.resolveContextWindow(effectiveModelId);
-		if (!usage || !contextWindow) {
+		if (!contextWindow) {
 			if (!this._currentData.get()) {
 				this.hide();
 			}
 			return;
 		}
+		if (!usage) {
+			if (!this._currentData.get()) {
+				this.renderUsage(contextWindow, { promptTokens: 0, completionTokens: 0 });
+				this.show();
+			}
+			return;
+		}
 
+		this.renderUsage(contextWindow, {
+			promptTokens: usage.promptTokens,
+			completionTokens: usage.completionTokens,
+			promptTokenDetails: usage.promptTokenDetails,
+			sessionCost: response.session.sessionCost,
+		});
+		this.show();
+	}
+
+	/**
+	 * Shows a 0% ring for the selected model when no response has reported usage yet.
+	 * Hides the meter when that model has no resolvable context window.
+	 */
+	private renderEmptyWindow(): void {
+		const contextWindow = this.resolveContextWindow(this._selectedModelId);
+		if (!contextWindow) {
+			this._currentData.set(undefined, undefined);
+			this.hide();
+			return;
+		}
+		this.renderUsage(contextWindow, { promptTokens: 0, completionTokens: 0 });
+		this.show();
+	}
+
+	private renderUsage(
+		contextWindow: { maxOutputTokens: number | undefined; totalContextWindow: number },
+		usage: { promptTokens: number; completionTokens: number; promptTokenDetails?: IChatContextUsageData['promptTokenDetails']; sessionCost?: number },
+	): void {
 		const { maxOutputTokens, totalContextWindow } = contextWindow;
-
 		const promptTokens = usage.promptTokens;
 		const completionTokens = usage.completionTokens;
-		const promptTokenDetails = usage.promptTokenDetails;
 		const usedTokens = promptTokens + completionTokens;
 		const percentage = (usedTokens / totalContextWindow) * 100;
 
@@ -453,15 +499,15 @@ export class ChatContextUsageWidget extends Disposable {
 		this.render({
 			usedTokens, completionTokens, totalContextWindow,
 			percentage, outputBufferPercentage,
-			promptTokenDetails, sessionCost: response.session.sessionCost,
+			promptTokenDetails: usage.promptTokenDetails,
+			sessionCost: usage.sessionCost,
 		});
-		this.show();
 	}
 
 	private render(data: IChatContextUsageData): void {
 		this._currentData.set(data, undefined);
 
-		// Pie chart shows actual usage percentage only
+		// The ring shows actual usage only. The reserved output band is drawn in the details popup.
 		this.progressIndicator.setProgress(data.percentage);
 
 		// Update percentage label and aria-label (clamp display to 100)

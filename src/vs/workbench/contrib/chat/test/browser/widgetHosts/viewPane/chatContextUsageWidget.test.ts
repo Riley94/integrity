@@ -13,7 +13,7 @@ import { IHoverService } from '../../../../../../../platform/hover/browser/hover
 import { IInstantiationService } from '../../../../../../../platform/instantiation/common/instantiation.js';
 import { MockContextKeyService } from '../../../../../../../platform/keybinding/test/common/mockKeybindingService.js';
 import { InMemoryStorageService } from '../../../../../../../platform/storage/common/storage.js';
-import { ChatContextUsageWidget, isSameContextUsageData, resolveContextWindowInputTokens } from '../../../../browser/widgetHosts/viewPane/chatContextUsageWidget.js';
+import { ChatContextUsageWidget, CircularProgressIndicator, isSameContextUsageData, resolveContextWindowInputTokens } from '../../../../browser/widgetHosts/viewPane/chatContextUsageWidget.js';
 import { ChatContextUsageDetails, IChatContextUsageData } from '../../../../browser/widgetHosts/viewPane/chatContextUsageDetails.js';
 import { IChatUsage } from '../../../../common/chatService/chatService.js';
 import { ILanguageModelChatMetadata, ILanguageModelConfigurationSchema, ILanguageModelsService } from '../../../../common/languageModels.js';
@@ -115,6 +115,39 @@ suite('isSameContextUsageData', () => {
 	});
 });
 
+suite('CircularProgressIndicator', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('draws a 15px radial ring with a 2px stroke that fills clockwise from empty', () => {
+		const indicator = new CircularProgressIndicator();
+		const arc = indicator.domNode.querySelector('.progress-arc');
+		const track = indicator.domNode.querySelector('.progress-bg');
+		assert.ok(arc instanceof SVGCircleElement);
+		assert.ok(track instanceof SVGCircleElement);
+
+		// 15px box, 2px stroke, inset 1px so round caps stay inside the viewBox.
+		const radius = 5.5;
+		const circumference = 2 * Math.PI * radius;
+		assert.strictEqual(indicator.domNode.getAttribute('viewBox'), '0 0 15 15');
+		assert.strictEqual(arc.getAttribute('r'), String(radius));
+		assert.strictEqual(track.getAttribute('r'), String(radius));
+		assert.strictEqual(arc.getAttribute('stroke-width'), '2');
+		assert.strictEqual(arc.getAttribute('stroke-linecap'), 'round');
+		assert.ok(Math.abs(parseFloat(arc.getAttribute('stroke-dasharray') ?? '') - circumference) < 1e-6);
+
+		const offsetAt = (percentage: number) => {
+			indicator.setProgress(percentage);
+			return parseFloat(arc.getAttribute('stroke-dashoffset') ?? '');
+		};
+		assert.ok(Math.abs(offsetAt(0) - circumference) < 1e-6);
+		assert.ok(Math.abs(offsetAt(50) - circumference / 2) < 1e-6);
+		assert.ok(Math.abs(offsetAt(100) - 0) < 1e-6);
+		// Values outside 0-100 clamp so the ring cannot over- or under-draw.
+		assert.ok(Math.abs(offsetAt(150) - 0) < 1e-6);
+		assert.ok(Math.abs(offsetAt(-10) - circumference) < 1e-6);
+	});
+});
+
 suite('ChatContextUsageWidget', () => {
 	const store = ensureNoDisposablesAreLeakedInTestSuite();
 
@@ -178,6 +211,27 @@ suite('ChatContextUsageWidget', () => {
 		return { kind: 'usage', promptTokens: 50_000, completionTokens: 4_000, actualModelId };
 	}
 
+	test('shows a 0% ring as soon as a model with a context window is selected', () => {
+		const widget = createWidget();
+		widget.setSelectedModel(CONCRETE_MODEL);
+
+		assert.strictEqual(widget.isVisible.get(), true);
+		assert.strictEqual(widget.domNode.querySelector('.percentage-label')?.textContent, '0%');
+		assert.strictEqual(widget.domNode.style.display, '');
+	});
+
+	test('keeps the empty ring when a new chat clears the last request', () => {
+		const widget = createWidget();
+		widget.setSelectedModel(CONCRETE_MODEL);
+		widget.update(createRequest(CONCRETE_MODEL, usage(undefined)));
+		assert.strictEqual(widget.domNode.querySelector('.percentage-label')?.textContent, '50%');
+
+		widget.update(undefined);
+
+		assert.strictEqual(widget.isVisible.get(), true);
+		assert.strictEqual(widget.domNode.querySelector('.percentage-label')?.textContent, '0%');
+	});
+
 	test('falls back to the actual model window when "auto" is selected (regression for #321781)', () => {
 		const widget = createWidget();
 		// User has "auto" selected; "auto" has no window of its own but the
@@ -206,6 +260,35 @@ suite('ChatContextUsageWidget', () => {
 
 		assert.strictEqual(widget.isVisible.get(), true);
 		assert.strictEqual(widget.domNode.querySelector('.percentage-label')?.textContent, '50%');
+	});
+
+	test('keeps the percentage beside the radial ring', () => {
+		const widget = createWidget();
+		widget.setSelectedModel(CONCRETE_MODEL);
+		widget.update(createRequest(CONCRETE_MODEL, usage(undefined)));
+
+		const label = widget.domNode.querySelector('.percentage-label');
+		const ring = widget.domNode.querySelector('.circular-progress');
+		assert.ok(label);
+		assert.ok(ring);
+		// The number leads the ring, and the ring is the thin radial meter.
+		assert.strictEqual(label.compareDocumentPosition(ring) & Node.DOCUMENT_POSITION_FOLLOWING, Node.DOCUMENT_POSITION_FOLLOWING);
+		assert.strictEqual(ring.getAttribute('viewBox'), '0 0 15 15');
+		assert.strictEqual(ring.querySelector('.progress-arc')?.getAttribute('stroke-width'), '2');
+	});
+
+	test('colors the ring as a warning at 75% and an error at 90%', () => {
+		const widget = createWidget();
+		widget.setSelectedModel(CONCRETE_MODEL);
+
+		widget.update(createRequest(CONCRETE_MODEL, { kind: 'usage', promptTokens: 81_000, completionTokens: 0 }));
+		assert.strictEqual(widget.domNode.classList.contains('warning'), true);
+		assert.strictEqual(widget.domNode.classList.contains('error'), false);
+
+		widget.update(createRequest(CONCRETE_MODEL, { kind: 'usage', promptTokens: 97_200, completionTokens: 0 }));
+		assert.strictEqual(widget.domNode.classList.contains('warning'), false);
+		assert.strictEqual(widget.domNode.classList.contains('error'), true);
+		assert.strictEqual(widget.domNode.querySelector('.percentage-label')?.textContent, '90%');
 	});
 
 	test('resolves session cost again when response data changes', () => {
