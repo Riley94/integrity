@@ -14,6 +14,12 @@ const REMOVED_PATHS = [
 	'extensions/copilot',
 	'extensions/microsoft-authentication',
 	'extensions/tunnel-forwarding',
+	'extensions/vscode-colorize-tests',
+	'extensions/vscode-colorize-perf-tests',
+	'src/vs/platform/agentHost/test',
+	'src/vs/base/test/node/uri.perf.data.txt',
+	'src/vs/base/test/node/uri.perf.test.ts',
+	'src/vs/workbench/api/test/browser/extHostDocumentData.test.perf-data.ts',
 	'build/azure-pipelines',
 	'build/copilot-migrate-pr.ts',
 ];
@@ -25,12 +31,12 @@ const JS_DEBUG_BUILT_INS = [
 ];
 
 suite('Integrity product surface guard', () => {
-	test('removed Microsoft product trees stay absent', () => {
+	test('removed product trees stay absent', () => {
 		for (const relativePath of REMOVED_PATHS) {
 			const absolutePath = path.join(repoRoot, relativePath);
 			assert.ok(
 				!fs.existsSync(absolutePath),
-				`Expected ${relativePath} to be absent; upstream merge may have restored unused Microsoft product surface.`
+				`Expected ${relativePath} to be absent; an upstream merge may have restored it.`
 			);
 		}
 	});
@@ -58,6 +64,14 @@ suite('Integrity product surface guard', () => {
 		assert.match(gulpfile, /github-authentication\/tsconfig\.json/);
 		assert.doesNotMatch(gulpfile, /microsoft-authentication\/tsconfig\.json/);
 		assert.doesNotMatch(gulpfile, /tunnel-forwarding\/tsconfig\.json/);
+		assert.doesNotMatch(gulpfile, /vscode-colorize-tests\/tsconfig\.json/);
+		assert.doesNotMatch(gulpfile, /vscode-colorize-perf-tests\/tsconfig\.json/);
+	});
+
+	test('npm install dirs omit the removed colorize test extensions', () => {
+		const dirs = fs.readFileSync(path.join(repoRoot, 'build', 'npm', 'dirs.ts'), 'utf8');
+		assert.doesNotMatch(dirs, /vscode-colorize-tests/);
+		assert.doesNotMatch(dirs, /vscode-colorize-perf-tests/);
 	});
 
 	test('product.json keeps js-debug built-ins and drops Copilot CDN leftovers', () => {

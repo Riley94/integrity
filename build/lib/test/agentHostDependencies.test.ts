@@ -16,11 +16,6 @@ const agentHostEntryPoints = [
 	'src/vs/platform/agentHost/node/agentHostServerMain.ts',
 ];
 const excludedLiteralDynamicImports = new Set([
-	// Test-only provider loaded by the standalone server's --enable-mock-agent option.
-	literalDynamicImportKey(
-		path.join(repositoryRoot, 'src/vs/platform/agentHost/node/agentHostServerMain.ts'),
-		'../test/node/mockAgent.js'
-	),
 	// Built products use the downloaded SDK path; the bare package import is a dev fallback.
 	literalDynamicImportKey(
 		path.join(repositoryRoot, 'src/vs/platform/agentHost/node/claude/claudeAgentSdkService.ts'),
@@ -59,7 +54,7 @@ suite('Agent Host dependencies', () => {
 		);
 		const mockAgentServerSource = ts.createSourceFile(
 			path.join(repositoryRoot, 'src/vs/platform/agentHost/node/agentHostServerMain.ts'),
-			`import('../test/node/mockAgent.js'); import('node-pty');`,
+			`import('node-pty');`,
 			ts.ScriptTarget.Latest,
 			true,
 			ts.ScriptKind.TS

@@ -103,35 +103,14 @@ For a true mobile viewport, drive a standalone Playwright script with `devices['
 | Workspace picker opens native dialog and hangs automation | `Select Folder…` needs a real file dialog  | Pick a workspace URL scheme instead, or skip in automation |
 | Stale UI after editing `vscode/` sources                  | Service worker cache                       | Unregister SWs + clear caches (snippet above)              |
 
-## Testing the Agents window against a local mock agent host
+## Testing the Agents window against a local agent host
 
-If the scenario touches the Agents window (`/agents` route), you almost always need the mock agent host running. Without it, the Agents window will sit on the sign-in / tunnel-discovery screen and block any real interaction. Start it **in addition to** the dev server — it's a second terminal, not a replacement.
-
-`vscode-dev` supports a `?mock-agent-host=ws://…` URL parameter that short-circuits tunnel discovery and wires the Agents window to a raw WebSocket. Pair it with the mock agent host binary from `microsoft/vscode`:
+The scripted mock agent (`--enable-mock-agent`) was removed with the agent host test tree. Start the real agent host server when a scenario needs a local WebSocket:
 
 ```bash
-cd /path/to/vscode
 node out/vs/platform/agentHost/node/agentHostServerMain.js \
-  --enable-mock-agent --quiet --without-connection-token --port 8765
+  --quiet --without-connection-token --port 8765
 # Listens on ws://localhost:8765
 ```
 
-Prerequisite: `out/` in the `vscode` repo must be populated by the `VS Code - Build` task (or `npm run watch`). If `out/vs/platform/agentHost/node/agentHostServerMain.js` is missing, start that task first.
-
-`--enable-mock-agent` registers the `ScriptedMockAgent` from `src/vs/platform/agentHost/test/node/mockAgent.ts` with one pre-existing session. Seed additional sessions via the `VSCODE_AGENT_HOST_MOCK_SEED_SESSIONS` env var, using a comma-separated list of session URIs (for example, `VSCODE_AGENT_HOST_MOCK_SEED_SESSIONS=mock://pre-1,mock://pre-2`). Scripted prompts include `hello`, `use-tool`, `error`, `permission`, `write-file`, `run-safe-command`, `slow`, `client-tool`, `subagent`, etc. (see `mockAgent.ts` for the full list).
-
-Then open:
-
-```
-https://127.0.0.1:3000/agents?vscode-quality=dev&mock-agent-host=ws://localhost:8765&vscode-log=trace
-```
-
-Expect these logs in order:
-
-- `[MockAgentHost] Using local mock agent host at ws://localhost:8765/`
-- `[WebTunnelAgentHost] Found 1 tunnel(s) with agent host support`
-- `[WebTunnelAgentHost] Connecting to tunnel 'mock-agent-host' (mock)`
-- `[WebTunnelAgentHost] Protocol handshake completed with tunnel:mock`
-- `[RemoteAgentHost] Registered agent mock from tunnel:mock as remote-tunnel__mock-mock`
-
-This bypasses GitHub auth and the `/agents/api/hosts` endpoint entirely, so it works offline. The fake tunnel on the `vscode-dev` side must advertise a `protocolvN` tag ≥ `TUNNEL_MIN_PROTOCOL_VERSION` in `src/vs/platform/agentHost/common/tunnelAgentHost.ts` (currently 5); otherwise `WebTunnelAgentHostService` filters it out and you'll see `Found 0 tunnel(s) with agent host support`.
+Prerequisite: `out/` must be populated by `npm run watch`. If `out/vs/platform/agentHost/node/agentHostServerMain.js` is missing, start that task first. That server no longer registers a scripted mock agent.

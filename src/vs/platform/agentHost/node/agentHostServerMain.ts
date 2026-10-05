@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 // Standalone agent host server with WebSocket protocol transport.
-// Start with: node out/vs/platform/agentHost/node/agentHostServerMain.js [--port <port>] [--host <host>] [--connection-token <token>] [--connection-token-file <path>] [--without-connection-token] [--enable-mock-agent] [--claude-sdk-root <path>] [--codex-sdk-root <path>] [--quiet] [--log <level>]
+// Start with: node out/vs/platform/agentHost/node/agentHostServerMain.js [--port <port>] [--host <host>] [--connection-token <token>] [--connection-token-file <path>] [--without-connection-token] [--claude-sdk-root <path>] [--codex-sdk-root <path>] [--quiet] [--log <level>]
 
 import { fileURLToPath } from 'url';
 
@@ -68,7 +68,6 @@ const connectionTokenRegex = /^[0-9A-Za-z_-]+$/;
 interface IServerOptions {
 	readonly port: number;
 	readonly host: string | undefined;
-	readonly enableMockAgent: boolean;
 	/**
 	 * Absolute path to the **SDK root directory** that contains
 	 * `node_modules/@anthropic-ai/claude-agent-sdk`. Acts as the dev override
@@ -93,7 +92,6 @@ function parseServerOptions(): IServerOptions {
 	const port = portIdx >= 0 ? parseInt(argv[portIdx + 1], 10) : envPort;
 	const hostIdx = argv.indexOf('--host');
 	const host = hostIdx >= 0 ? argv[hostIdx + 1] : undefined;
-	const enableMockAgent = argv.includes('--enable-mock-agent');
 	// `--claude-sdk-root` and `--codex-sdk-root` are dev overrides — they
 	// short-circuit the on-demand download from `product.agentSdks`. They must
 	// point at an SDK ROOT DIRECTORY (the parent of `node_modules/`), not the
@@ -147,7 +145,7 @@ function parseServerOptions(): IServerOptions {
 		connectionToken = generateUuid();
 	}
 
-	return { port, host, enableMockAgent, claudeSdkRoot, codexSdkRoot, quiet, connectionToken };
+	return { port, host, claudeSdkRoot, codexSdkRoot, quiet, connectionToken };
 }
 
 // ---- Main -------------------------------------------------------------------
@@ -284,15 +282,6 @@ async function main(): Promise<void> {
 			p.phase === 'completed' || p.phase === 'failed',
 			p.explicitlyRequested,
 		)));
-	}
-
-	if (options.enableMockAgent) {
-		// Dynamic import to avoid bundling test code in production
-		import('../test/node/mockAgent.js').then(({ ScriptedMockAgent }) => {
-			providerService.registerProvider(new ScriptedMockAgent());
-		}).catch(err => {
-			logService.error('[AgentHostServer] Failed to load mock agent', err);
-		});
 	}
 
 	// Keep every provider's model catalog fresh. Provider-owned refresh
