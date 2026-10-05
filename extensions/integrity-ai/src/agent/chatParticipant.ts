@@ -65,7 +65,13 @@ import {
 	routeToolSurface,
 } from '../jev/forks';
 import { isAbortError } from '../jev/jevClient';
-import { classifyPrintedToolCall, parseJsonToolCall, printedToolCallMessage } from '../providers/jsonToolFallback';
+import {
+	classifyPrintedToolCall,
+	decideUnparsedPrintedTool,
+	parseJsonToolCall,
+	printedToolCallMessage,
+	unparsedPrintedToolStopMessage,
+} from '../providers/jsonToolFallback';
 import { estimateContextUsage, promptTextFromMessages } from './contextUsage';
 
 const DEFAULT_MAX_STEPS = 24;
@@ -283,6 +289,7 @@ export async function runChatAgentLoop(
 	];
 
 	let scratchpadRan = false;
+	let correctedUnparsedTools: ReadonlySet<string> = new Set();
 	let reviewState: EditReviewState = emptyEditReviewState();
 	let writtenFiles: readonly SessionFileRecord[] = [];
 	const canReviewEdits = toolCatalog.some(tool => tool.name === IntegrityToolName.ReadFile);
@@ -446,7 +453,13 @@ export async function runChatAgentLoop(
 					assistantParts.push(call);
 					toolCalls.push(call);
 				} else {
-					stream.progress(`Calling \`${printedName}\` instead of printed JSON…`);
+					const decision = decideUnparsedPrintedTool(correctedUnparsedTools, printedName);
+					correctedUnparsedTools = decision.corrected;
+					if (decision.action === 'stop') {
+						stream.markdown(`\n\n${unparsedPrintedToolStopMessage(printedName)}`);
+						return finishTurn();
+					}
+					stream.progress(`Printed \`${printedName}\` was not valid JSON. Asking for one corrected call…`);
 					messages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
 					messages.push(vscode.LanguageModelChatMessage.User(printedToolCallMessage(printedName)));
 					continue;

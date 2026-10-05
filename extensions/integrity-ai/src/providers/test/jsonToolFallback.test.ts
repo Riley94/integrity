@@ -8,9 +8,11 @@ import { describe, it, beforeEach } from 'node:test';
 import {
 	applyJsonToolCallFallback,
 	classifyPrintedToolCall,
+	decideUnparsedPrintedTool,
 	parseJsonToolCall,
 	printedToolCallMessage,
 	resetJsonFallbackIdCounter,
+	unparsedPrintedToolStopMessage,
 } from '../jsonToolFallback';
 
 describe('parseJsonToolCall', () => {
@@ -91,7 +93,7 @@ describe('classifyPrintedToolCall', () => {
 		}
 	});
 
-	it('names the tool when code inside the JSON has raw quotes', () => {
+	it('repairs raw quotes inside a printed patch', () => {
 		const text = [
 			'The main.py file has been reviewed. I will apply the patch.',
 			'{',
@@ -103,11 +105,89 @@ describe('classifyPrintedToolCall', () => {
 			'}',
 		].join('\n');
 		const broken = text.replace('text=\\"=\\"', 'text="="');
-		assert.equal(parseJsonToolCall(broken), null);
+		const result = parseJsonToolCall(broken);
+		assert.ok(result);
+		assert.equal(result!.toolCall.name, 'integrity_apply_patch');
+		assert.deepEqual(result!.toolCall.arguments, {
+			path: 'main.py',
+			hunks: [{ oldText: 'x', newText: 'text="="' }],
+		});
+		assert.equal(result!.remainingText, 'The main.py file has been reviewed. I will apply the patch.');
 		const printed = classifyPrintedToolCall(broken);
-		assert.deepEqual(printed, { kind: 'unparsed', name: 'integrity_apply_patch' });
-		assert.match(printedToolCallMessage('integrity_apply_patch'), /Call integrity_apply_patch as a tool now/);
-		assert.match(printedToolCallMessage('integrity_apply_patch'), /Do not print the call as JSON/);
+		assert.equal(printed?.kind, 'parsed');
+	});
+
+	it('parses a patch whose newText is a Python triple-quoted string', () => {
+		const text = [
+			'This patch adds a calculator.',
+			'{',
+			'  "name": "integrity_apply_patch",',
+			'  "arguments": {',
+			'    "file_path": "main_app.py",',
+			'    "hunks": [{',
+			'      "oldText": "# Create the main application window",',
+			'      "newText": """',
+			'def calculator():',
+			'    button = tk.Button(calc_window, text="=", command=button_equal)',
+			'    other = tk.Button(calc_window, text="1", padx=40)',
+			'"""',
+			'    }]',
+			'  }',
+			'}',
+		].join('\n');
+		const result = parseJsonToolCall(text);
+		assert.ok(result);
+		assert.equal(result!.toolCall.name, 'integrity_apply_patch');
+		const hunks = result!.toolCall.arguments.hunks as Array<{ oldText: string; newText: string }>;
+		assert.equal(hunks[0].oldText, '# Create the main application window');
+		assert.match(hunks[0].newText, /text="="/);
+		assert.match(hunks[0].newText, /text="1", padx=40/);
+		assert.equal(result!.toolCall.arguments.file_path, 'main_app.py');
+		assert.equal(result!.remainingText, 'This patch adds a calculator.');
+		assert.equal(classifyPrintedToolCall(text)?.kind, 'parsed');
+	});
+
+	it('parses a single-quoted triple string', () => {
+		const text = `{"name":"integrity_apply_patch","arguments":{"path":"main.py","newText":'''say "hi"'''}}`;
+		const result = parseJsonToolCall(text);
+		assert.ok(result);
+		assert.equal(result!.toolCall.arguments.newText, 'say "hi"');
+	});
+
+	it('repairs a raw newline inside a JSON string', () => {
+		const text = '{"name":"integrity_apply_patch","arguments":{"newText":"line1\nline2"}}';
+		const result = parseJsonToolCall(text);
+		assert.ok(result);
+		assert.equal(result!.toolCall.arguments.newText, 'line1\nline2');
+	});
+
+	it('names the tool when the printed JSON still does not parse', () => {
+		const text = '{\n  "name": "integrity_apply_patch",\n  "arguments": {\n    "path": "main.py"';
+		assert.equal(parseJsonToolCall(text), null);
+		assert.deepEqual(classifyPrintedToolCall(text), { kind: 'unparsed', name: 'integrity_apply_patch' });
+		const message = printedToolCallMessage('integrity_apply_patch');
+		assert.match(message, /did not parse/);
+		assert.match(message, /Escape every double quote/);
+		assert.match(message, /triple quotes/);
+		assert.doesNotMatch(message, /Do not print the call as JSON/);
+	});
+
+	it('leaves a quote followed by a comma unparsed', () => {
+		const text = '{"name":"integrity_apply_patch","arguments":{"newText":"text="1", padx"}}';
+		assert.equal(parseJsonToolCall(text), null);
+		assert.deepEqual(classifyPrintedToolCall(text), { kind: 'unparsed', name: 'integrity_apply_patch' });
+	});
+
+	it('corrects an unparsed tool once and then stops', () => {
+		const first = decideUnparsedPrintedTool(new Set(), 'integrity_apply_patch');
+		assert.equal(first.action, 'correct');
+		assert.equal(first.corrected.has('integrity_apply_patch'), true);
+		const second = decideUnparsedPrintedTool(first.corrected, 'integrity_apply_patch');
+		assert.equal(second.action, 'stop');
+		assert.equal(second.corrected, first.corrected);
+		const other = decideUnparsedPrintedTool(first.corrected, 'integrity_read_file');
+		assert.equal(other.action, 'correct');
+		assert.match(unparsedPrintedToolStopMessage('integrity_apply_patch'), /was not applied/);
 	});
 
 	it('ignores prose that does not print a tool call', () => {
