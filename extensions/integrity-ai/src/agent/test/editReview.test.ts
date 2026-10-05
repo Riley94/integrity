@@ -12,6 +12,7 @@ import {
 	holdReplyForEditReview,
 	MAX_EDIT_REVIEWS,
 	noteToolResult,
+	withReviewEditTools,
 	withReviewReadTool,
 	type EditReviewState,
 } from '../editReview';
@@ -87,6 +88,8 @@ describe('holdReplyForEditReview', () => {
 		assert.deepEqual(held.state.unread, ['src/a.ts']);
 		assert.equal(held.message, editReviewMessage(['src/a.ts']));
 		assert.match(held.message, /integrity_read_file/);
+		assert.match(held.message, /integrity_apply_patch/);
+		assert.match(held.message, /Do not print the call as JSON/);
 		assert.match(held.message, /src\/a\.ts/);
 		assert.match(held.message, /previous summary was not shown/);
 	});
@@ -165,5 +168,24 @@ describe('withReviewReadTool', () => {
 		assert.equal(withReviewReadTool(selected, [readFile, createFile]), selected);
 		const onlyCreate = [createFile];
 		assert.equal(withReviewReadTool(onlyCreate, [createFile, replace]), onlyCreate);
+	});
+});
+
+describe('withReviewEditTools', () => {
+	it('adds edit tools the catalog offered and Jev left out', () => {
+		const patch = { name: IntegrityToolName.ApplyPatch, description: 'Apply a patch.' };
+		const next = withReviewEditTools([createFile], [createFile, replace, patch, readFile]);
+		assert.deepEqual(next.map(tool => tool.name), [
+			IntegrityToolName.CreateFile,
+			IntegrityToolName.ReplaceString,
+			IntegrityToolName.ApplyPatch,
+		]);
+	});
+
+	it('leaves the selection alone when every edit tool is already kept or was not offered', () => {
+		const selected = [createFile, replace];
+		assert.equal(withReviewEditTools(selected, [createFile, replace, readFile]), selected);
+		const readOnly = [readFile];
+		assert.equal(withReviewEditTools(readOnly, readOnly), readOnly);
 	});
 });

@@ -471,7 +471,7 @@ export type ApplyPatchHunksResult =
  * Apply ordered patch hunks to an optional existing file buffer.
  *
  * - Missing file + first hunk with empty oldText → create with newText.
- * - Existing file + empty oldText → append newText.
+ * - Existing file + empty oldText → append newText, unless that text is already in the file.
  * - Non-empty oldText → unique replace (fails with no partial apply of later hunks).
  */
 export function applyPatchHunks(
@@ -499,6 +499,12 @@ export function applyPatchHunks(
 			}
 			if (!fileExists && !created) {
 				return { ok: false, error: `hunk ${i}: cannot append to a missing file; use empty oldText on the first hunk to create it.` };
+			}
+			if (newText && updated.includes(newText)) {
+				return {
+					ok: false,
+					error: `hunk ${i}: this text is already in the file. Read the file and send a unique oldText.`,
+				};
 			}
 			updated = updated + prepareAppendNewText(updated, newText);
 			continue;
