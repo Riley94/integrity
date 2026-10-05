@@ -15,7 +15,9 @@ import {
 	LOOK_REQUIRED_MESSAGE,
 	noteLookObservation,
 	noteReadSinceWrite,
+	planFromObservedReply,
 	rejectionForUnreadEdit,
+	toolsAfterObservation,
 } from '../lookPhase';
 import { IntegrityToolName } from '../toolNames';
 
@@ -125,6 +127,24 @@ describe('holdReplyForLookPhase', () => {
 
 	it('leaves a turn that is not looking alone', () => {
 		assert.deepEqual(holdReplyForLookPhase(emptyLookPhaseState(false)), { action: 'inactive' });
+	});
+});
+
+describe('toolsAfterObservation', () => {
+	it('stops offering list and read so the next step is the plan', () => {
+		const looked = beginLookPhase([createFile, patch, scratchpad], catalog);
+		assert.deepEqual(toolsAfterObservation(looked.tools, false), []);
+		assert.deepEqual(
+			toolsAfterObservation(looked.tools, true).map(tool => tool.name),
+			[IntegrityToolName.Scratchpad],
+		);
+	});
+});
+
+describe('planFromObservedReply', () => {
+	it('keeps prose and ignores a blank reply', () => {
+		assert.equal(planFromObservedReply('  Create calculator.py.\n'), 'Create calculator.py.');
+		assert.equal(planFromObservedReply('  \n'), undefined);
 	});
 });
 

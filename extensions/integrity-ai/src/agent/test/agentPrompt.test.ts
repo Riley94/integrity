@@ -138,6 +138,13 @@ describe('buildSystemPrompt', () => {
 		assert.doesNotMatch(prompt, /Look at the workspace before editing/);
 	});
 
+	it('tells the writer to state the plan once the workspace has been seen', () => {
+		const prompt = buildSystemPrompt('agent', '', '', [], false, [], false, false, '', true);
+		assert.match(prompt, /already been listed or read/);
+		assert.match(prompt, /Do not call tools/);
+		assert.doesNotMatch(prompt, /Look at the workspace before editing/);
+	});
+
 	it('tells the writer to run Python before answering when the host rule requires it', () => {
 		const prompt = buildSystemPrompt('agent', '', '', [{
 			name: 'integrity_scratchpad',

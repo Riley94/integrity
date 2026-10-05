@@ -35,6 +35,14 @@ export const LOOK_PLAN_CONTINUE_MESSAGE =
 	'The plan is recorded. Follow it. Call integrity_read_file before integrity_apply_patch or integrity_replace_string when the file has not been read since its last write. Do not repeat the plan.';
 
 /**
+ * System prompt and continue message once a look tool has succeeded.
+ * Further list, search, and read calls are not offered. A model that keeps calling them
+ * never sends the text-only plan, and the turn runs until the step cap.
+ */
+export const LOOK_STATE_PLAN_MESSAGE =
+	'The workspace has already been listed or read. State which files you opened, what you will create or change, and the first edit. Do not call tools.';
+
+/**
  * Workspace tools whose success counts as having looked.
  * An empty listing or an empty search still counts. {@link IntegrityToolName.GetErrors} does not.
  */
@@ -140,6 +148,30 @@ export type LookTextDecision =
 	| { action: 'inactive' }
 	| { action: 'hold'; message: string }
 	| { action: 'plan'; message: string };
+
+/**
+ * Tools for the step after a look has succeeded.
+ * An empty list makes the writer state the plan. The scratchpad stays only while it is still required,
+ * so a runtime question can still run, and list, search, and read cannot be called again.
+ */
+export function toolsAfterObservation<T extends { name: string }>(
+	lookTools: readonly T[],
+	scratchpadPending: boolean,
+): T[] {
+	if (!scratchpadPending) {
+		return [];
+	}
+	return lookTools.filter(tool => tool.name === IntegrityToolName.Scratchpad);
+}
+
+/**
+ * Prose that can be stored as the plan. Blank text is not a plan.
+ * Tool-call JSON stripped by the caller must not be passed in here.
+ */
+export function planFromObservedReply(text: string): string | undefined {
+	const plan = text.trim();
+	return plan ? plan : undefined;
+}
 
 /**
  * A text reply before any look continues the phase.

@@ -22,9 +22,13 @@ import {
 	emptyReadSinceWriteState,
 	finishLookPhase,
 	holdReplyForLookPhase,
+	LOOK_PLAN_CONTINUE_MESSAGE,
+	LOOK_STATE_PLAN_MESSAGE,
 	noteLookObservation,
 	noteReadSinceWrite,
+	planFromObservedReply,
 	rejectionForUnreadEdit,
+	toolsAfterObservation,
 	type LookPhaseState,
 	type ReadSinceWriteState,
 } from './lookPhase';
@@ -61,7 +65,7 @@ import {
 	routeToolSurface,
 } from '../jev/forks';
 import { isAbortError } from '../jev/jevClient';
-import { classifyPrintedToolCall, printedToolCallMessage } from '../providers/jsonToolFallback';
+import { classifyPrintedToolCall, parseJsonToolCall, printedToolCallMessage } from '../providers/jsonToolFallback';
 
 const DEFAULT_MAX_STEPS = 24;
 
@@ -197,6 +201,8 @@ export async function runChatAgentLoop(
 	let readBeforeEdit = false;
 	// Jev's tools, kept so the look phase can give them back after the plan.
 	let toolsBeforeLook: vscode.LanguageModelChatTool[] = [];
+	// Read-only tools offered while looking. Restored only for a still-pending scratchpad.
+	let lookToolSurface: vscode.LanguageModelChatTool[] = [];
 	let lookActive = false;
 	if (!tools.length) {
 		printJevDebug(stream, describeSkippedToolSurface('no tools were enabled'));
@@ -237,6 +243,9 @@ export async function runChatAgentLoop(
 			}
 			selectedTools = ruledTools.map(tool => ({ name: tool.name, description: tool.description }));
 			tools = ruledTools;
+			if (lookActive) {
+				lookToolSurface = tools;
+			}
 			const keptByHost = scratchpadRequired
 				&& !jevSelected.some(tool => tool.name === IntegrityToolName.Scratchpad);
 			if (keptByHost) {
@@ -287,9 +296,29 @@ export async function runChatAgentLoop(
 
 	function syncSelectedTools(): void {
 		selectedTools = tools.map(tool => ({ name: tool.name, description: tool.description }));
+		const awaitingLookPlan = lookState.active && lookState.observed && !(scratchpadRequired && !scratchpadRan);
 		messages[0] = vscode.LanguageModelChatMessage.User(
-			`[System instructions]\n${buildSystemPrompt(mode, agentRules, extraContext, selectedTools, scratchpadRequired, priorFiles, readBeforeEdit, lookState.active, lookState.plan)}`,
+			`[System instructions]\n${buildSystemPrompt(mode, agentRules, extraContext, selectedTools, scratchpadRequired, priorFiles, readBeforeEdit, lookState.active && !awaitingLookPlan, lookState.plan, awaitingLookPlan)}`,
 		);
+	}
+
+	/**
+	 * Record the plan and give back the edit tools Jev selected.
+	 * The read tool stays available so a later patch can open the file it changes.
+	 */
+	function startEditing(planText: string): void {
+		lookState = finishLookPhase(lookState, planText);
+		tools = [...withReviewReadTool(toolsBeforeLook, toolCatalog)];
+		syncSelectedTools();
+		stream.progress('Editing from the plan…');
+	}
+
+	/**
+	 * Text that states a plan. A printed tool call with no other prose is not a plan.
+	 */
+	function planTextFromReply(text: string): string | undefined {
+		const parsed = parseJsonToolCall(text);
+		return planFromObservedReply(parsed ? parsed.remainingText : text);
 	}
 
 	// The system prompt names only the tools Jev kept. A review has to be allowed to read and fix.
@@ -334,6 +363,16 @@ export async function runChatAgentLoop(
 		// Prose in the look phase, beside a tool call, or held for the scratchpad or a review is not the answer.
 		const scratchpadPending = scratchpadRequired && !scratchpadRan;
 		const reviewPending = canReviewEdits && editReviewPending(reviewState);
+		const awaitingPlan = lookState.active && lookState.observed && !scratchpadPending;
+		// Once the workspace has been seen, another list or read never becomes the plan.
+		if (lookState.active && lookState.observed) {
+			const next = toolsAfterObservation(lookToolSurface, scratchpadPending);
+			const same = next.length === tools.length && next.every((tool, index) => tool === tools[index]);
+			if (!same) {
+				tools = [...next];
+				syncSelectedTools();
+			}
+		}
 		const holdProse = lookState.active || scratchpadPending || reviewPending;
 
 		let response: vscode.LanguageModelChatResponse;
@@ -427,10 +466,14 @@ export async function runChatAgentLoop(
 				continue;
 			}
 			if (look.action === 'plan') {
-				lookState = finishLookPhase(lookState, textOut);
-				tools = [...withReviewReadTool(toolsBeforeLook, toolCatalog)];
-				syncSelectedTools();
-				stream.progress('Editing from the plan…');
+				const planText = planTextFromReply(textOut);
+				if (!planText) {
+					stream.progress('Stating the plan before editing…');
+					messages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
+					messages.push(vscode.LanguageModelChatMessage.User(LOOK_STATE_PLAN_MESSAGE));
+					continue;
+				}
+				startEditing(planText);
 				messages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
 				messages.push(vscode.LanguageModelChatMessage.User(look.message));
 				continue;
@@ -445,6 +488,19 @@ export async function runChatAgentLoop(
 			stream.progress(`Reviewing changed files (${reviewState.reviews} of ${MAX_EDIT_REVIEWS})…`);
 			messages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
 			messages.push(vscode.LanguageModelChatMessage.User(review.message));
+			continue;
+		}
+
+		if (awaitingPlan && toolCalls.length) {
+			const planText = planTextFromReply(textOut);
+			messages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
+			if (planText) {
+				startEditing(planText);
+				messages.push(vscode.LanguageModelChatMessage.User(LOOK_PLAN_CONTINUE_MESSAGE));
+			} else {
+				stream.progress('Stating the plan before editing…');
+				messages.push(vscode.LanguageModelChatMessage.User(LOOK_STATE_PLAN_MESSAGE));
+			}
 			continue;
 		}
 
