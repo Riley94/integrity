@@ -188,8 +188,8 @@ export class ChatDebugServiceImpl extends Disposable implements IChatDebugServic
 	private _isDebugEligibleSession(sessionResource: URI): boolean {
 		const sessionType = getChatSessionType(sessionResource);
 		return ChatDebugServiceImpl._debugEligibleSessionTypes.has(sessionType)
-			// Remote Agent Host Copilot CLI sessions use a dynamic
-			// `remote-<authority>-copilotcli` scheme; see copilotCliEventsUri.ts.
+			// Remote Copilot CLI sessions use a dynamic
+			// `remote-<authority>-copilotcli` scheme.
 			|| (sessionType.startsWith('remote-') && sessionType.endsWith('-copilotcli'))
 			|| this._importedSessions.has(sessionResource);
 	}

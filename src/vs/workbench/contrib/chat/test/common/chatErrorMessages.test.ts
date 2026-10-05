@@ -16,10 +16,9 @@ import {
 } from '../../common/chatErrorMessages.js';
 import { ChatEntitlement } from '../../../../services/chat/common/chatEntitlementService.js';
 import { ChatErrorLevel } from '../../common/chatService/chatService.js';
-import type { ErrorInfo } from '../../../../../platform/agentHost/common/state/protocol/state.js';
 
-/** Wraps a `_meta` bag in a minimal {@link ErrorInfo} so the reader sees the right source type. */
-function errorInfo(meta: Record<string, unknown> | undefined): ErrorInfo {
+/** Wraps a `_meta` bag so the reader sees the error-info shape. */
+function errorInfo(meta: Record<string, unknown> | undefined): Parameters<typeof getChatErrorDetailsFromMeta>[0] {
 	return { errorType: 'e', message: 'm', _meta: meta };
 }
 

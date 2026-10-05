@@ -46,7 +46,7 @@ import { IAICustomizationItemsModel, ITEMS_MODEL_SECTIONS } from './aiCustomizat
 import { McpListWidget } from './mcpListWidget.js';
 import { PluginListWidget } from './pluginListWidget.js';
 import { ToolsListWidget } from './toolsListWidget.js';
-import { AGENT_HOST_COPILOT_CLI_SESSION_TYPE } from '../agentSessions/agentHost/agentHostToolSetEnablementService.js';
+import { SessionType } from '../../common/chatSessionsService.js';
 import {
 	AI_CUSTOMIZATION_MANAGEMENT_EDITOR_ID,
 	AI_CUSTOMIZATION_MANAGEMENT_SIDEBAR_WIDTH_KEY,
@@ -1030,7 +1030,7 @@ export class AICustomizationManagementEditor extends EditorPane {
 		if (hasSections.has(AICustomizationManagementSection.Tools)) {
 			this.toolsContentContainer = DOM.append(contentInner, $('.tools-content-container'));
 			// Tools customizations only target the agent host (Copilot CLI), in both windows.
-			this.toolsListWidget = this.editorDisposables.add(this.instantiationService.createInstance(ToolsListWidget, AGENT_HOST_COPILOT_CLI_SESSION_TYPE));
+			this.toolsListWidget = this.editorDisposables.add(this.instantiationService.createInstance(ToolsListWidget, SessionType.AgentHostCopilot));
 			this.toolsContentContainer.appendChild(this.toolsListWidget.element);
 
 			// Embedded tool-contributing extension detail view

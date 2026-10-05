@@ -8,11 +8,10 @@ import { URI } from '../../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../../base/test/common/utils.js';
 import { IMcpRemoteServerConfiguration, IMcpStdioServerConfiguration, McpServerType } from '../../../../../../platform/mcp/common/mcpPlatformTypes.js';
 import { convertBareEnvVarsToVsCodeSyntax as convertBareEnvVarsToVsCodeSyntaxRaw } from '../../../common/plugins/agentPluginServiceImpl.js';
-import { CustomizationType, McpServerStatus, type McpServerCustomization } from '../../../../../../platform/agentHost/common/state/protocol/state.js';
-import type { IMcpServerDefinition } from '../../../../../../platform/agentPlugins/common/pluginParsers.js';
+import { CustomizationType, DEFAULT_MCP_APP, McpServerStatus, type IMcpServerDefinition } from '../../../../../../platform/agentPlugins/common/pluginParsers.js';
 
-function stubMcpCustomization(): McpServerCustomization {
-	return { type: CustomizationType.McpServer, id: 'stub', uri: 'file:///test', name: 'test', state: { kind: McpServerStatus.Starting } };
+function stubMcpCustomization(): IMcpServerDefinition['customization'] {
+	return { type: CustomizationType.McpServer, id: 'stub', uri: 'file:///test', name: 'test', state: { kind: McpServerStatus.Stopped }, mcpApp: DEFAULT_MCP_APP };
 }
 
 /**

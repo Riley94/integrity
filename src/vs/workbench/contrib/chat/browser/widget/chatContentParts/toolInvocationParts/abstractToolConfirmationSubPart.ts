@@ -11,7 +11,7 @@ import { localize } from '../../../../../../../nls.js';
 import { IContextKeyService } from '../../../../../../../platform/contextkey/common/contextkey.js';
 import { IInstantiationService } from '../../../../../../../platform/instantiation/common/instantiation.js';
 import { IKeybindingService } from '../../../../../../../platform/keybinding/common/keybinding.js';
-import { ConfirmationOptionKind, ConfirmationOption } from '../../../../../../../platform/agentHost/common/state/protocol/state.js';
+import { ConfirmationOption, ConfirmationOptionKind } from '../../../../common/chatService/chatService.js';
 import { IEditorIdentifier } from '../../../../../../common/editor.js';
 import { IEditorService } from '../../../../../../services/editor/common/editorService.js';
 import { ChatContextKeys } from '../../../../common/actions/chatContextKeys.js';

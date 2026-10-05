@@ -4,8 +4,14 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { localize } from '../../../../nls.js';
-import type { ErrorInfo } from '../../../../platform/agentHost/common/state/protocol/state.js';
 import { ChatEntitlement } from '../../../services/chat/common/chatEntitlementService.js';
+
+export interface ErrorInfo {
+	errorType: string;
+	message: string;
+	stack?: string;
+	_meta?: Record<string, unknown>;
+}
 import { ChatErrorLevel, IChatResponseErrorDetails } from './chatService/chatService.js';
 
 /**

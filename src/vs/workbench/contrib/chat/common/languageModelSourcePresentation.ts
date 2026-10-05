@@ -6,8 +6,9 @@
 import { IDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { ThemeIcon } from '../../../../base/common/themables.js';
 import { localize } from '../../../../nls.js';
-import { CHATGPT_SUBSCRIPTION_MODEL_SOURCE_ID } from '../../../../platform/agentHost/common/agentModelSource.js';
 import { ILanguageModelChatMetadataAndIdentifier } from './languageModels.js';
+
+const CHATGPT_SUBSCRIPTION_MODEL_SOURCE_ID = 'chatgptSubscription';
 
 /** Presentation for a trusted model source owned by one language-model vendor. */
 export interface ILanguageModelSourcePresentation {

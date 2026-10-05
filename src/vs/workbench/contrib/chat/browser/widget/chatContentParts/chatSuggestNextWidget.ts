@@ -17,8 +17,6 @@ import { ChatConfiguration } from '../../../common/constants.js';
 import { IChatMode } from '../../../common/chatModes.js';
 import { IChatSessionsService } from '../../../common/chatSessionsService.js';
 import { IHandOff } from '../../../common/promptSyntax/promptFileParser.js';
-import { getAgentCanContinueIn, getAgentSessionProvider, getAgentSessionProviderIcon, getAgentSessionProviderName } from '../../agentSessions/agentSessions.js';
-
 export interface INextPromptSelection {
 	readonly handoff: IHandOff;
 	readonly agentId?: string;
@@ -150,8 +148,7 @@ export class ChatSuggestNextWidget extends Disposable {
 			if (c.type === currentSessionType) {
 				return false;
 			}
-			const provider = getAgentSessionProvider(c.type);
-			return provider !== undefined && getAgentCanContinueIn(provider);
+			return true;
 		});
 
 		if (showContinueOn && availableContributions.length > 0) {
@@ -173,9 +170,8 @@ export class ChatSuggestNextWidget extends Disposable {
 				e.stopPropagation();
 
 				const actions = availableContributions.map(contrib => {
-					const provider = getAgentSessionProvider(contrib.type)!;
-					const icon = getAgentSessionProviderIcon(provider);
-					const name = getAgentSessionProviderName(provider);
+					const icon = undefined;
+					const name = contrib.displayName;
 					return new Action(
 						contrib.type,
 						localize('continueIn', "Continue in {0}", name),

@@ -27,7 +27,6 @@ import { ILogService } from '../../../platform/log/common/log.js';
 import { ITelemetryService } from '../../../platform/telemetry/common/telemetry.js';
 import { IUriIdentityService } from '../../../platform/uriIdentity/common/uriIdentity.js';
 import { IChatWidget, IChatWidgetService } from '../../contrib/chat/browser/chat.js';
-import { AgentSessionProviders, getAgentSessionProvider } from '../../contrib/chat/browser/agentSessions/agentSessions.js';
 import { AddDynamicVariableAction, IAddDynamicVariableContext } from '../../contrib/chat/browser/attachments/chatDynamicVariables.js';
 import { IChatAgentHistoryEntry, IChatAgentImplementation, IChatAgentRequest, IChatAgentService } from '../../contrib/chat/common/participants/chatAgents.js';
 import { IAgentSkill, IChatPromptSlashCommand, ICustomAgent, IInstructionFile, IPromptFileContext, IPromptPath, IPromptsService, PromptsStorage } from '../../contrib/chat/common/promptSyntax/service/promptsService.js';
@@ -37,7 +36,7 @@ import { ChatRequestAgentPart } from '../../contrib/chat/common/requestParser/ch
 import { ChatRequestParser, IChatParserContext } from '../../contrib/chat/common/requestParser/chatRequestParser.js';
 import { getDynamicVariablesForWidget, getSelectedToolAndToolSetsForWidget } from '../../contrib/chat/browser/attachments/chatVariables.js';
 import { IChatContentInlineReference, IChatContentReference, IChatFollowup, IChatNotebookEdit, IChatProgress, IChatService, IChatTask, IChatTaskSerialized, IChatWarningMessage } from '../../contrib/chat/common/chatService/chatService.js';
-import { ChatSessionOptionsMap, IChatSessionsService } from '../../contrib/chat/common/chatSessionsService.js';
+import { ChatSessionOptionsMap, IChatSessionsService, SessionType } from '../../contrib/chat/common/chatSessionsService.js';
 import { ChatAgentLocation, ChatModeKind } from '../../contrib/chat/common/constants.js';
 import { ILanguageModelToolsService } from '../../contrib/chat/common/tools/languageModelToolsService.js';
 import { IExtHostContext, extHostNamedCustomer } from '../../services/extensions/common/extHostCustomers.js';
@@ -197,7 +196,7 @@ export class MainThreadChatAgents2 extends Disposable implements MainThreadChatA
 
 	private _acceptActiveChatSession(widget: IChatWidget | undefined): void {
 		const sessionResource = widget?.viewModel?.sessionResource;
-		const isLocal = sessionResource && getAgentSessionProvider(sessionResource) === AgentSessionProviders.Local;
+		const isLocal = sessionResource && getChatSessionType(sessionResource) === SessionType.Local;
 		this._proxy.$acceptActiveChatSession(isLocal ? sessionResource : undefined);
 	}
 

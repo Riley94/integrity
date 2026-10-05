@@ -20,8 +20,6 @@ import { localize } from '../../../nls.js';
 import { IDialogService } from '../../../platform/dialogs/common/dialogs.js';
 import { IInstantiationService } from '../../../platform/instantiation/common/instantiation.js';
 import { ILogService } from '../../../platform/log/common/log.js';
-import { hasValidDiff, IAgentSession } from '../../contrib/chat/browser/agentSessions/agentSessionsModel.js';
-import { IAgentSessionsService } from '../../contrib/chat/browser/agentSessions/agentSessionsService.js';
 import { IChatWidgetService, isIChatViewViewContext } from '../../contrib/chat/browser/chat.js';
 import { getInProgressSessionDescription } from '../../contrib/chat/browser/chatSessions/chatSessionDescription.js';
 import { getSessionStatusForModel } from '../../contrib/chat/browser/chatSessions/chatSessions.contribution.js';
@@ -622,6 +620,18 @@ class MainThreadChatSessionItemController extends Disposable implements IChatSes
 	}
 }
 
+function hasSessionDiff(changes: IChatSessionItem['changes']): boolean {
+	if (!changes) {
+		return false;
+	}
+
+	if (changes instanceof Array) {
+		return changes.length > 0;
+	}
+
+	return changes.files > 0 || changes.insertions > 0 || changes.deletions > 0;
+}
+
 class MainThreadChatSessionItem implements IChatSessionItem {
 	readonly resource: URI;
 
@@ -655,12 +665,12 @@ class MainThreadChatSessionItem implements IChatSessionItem {
 
 		// We can still get stats if there is no model or if fetching from model failed
 		if (detailOverrides && !this.changes) {
-			const diffs: IAgentSession['changes'] = {
+			const diffs: IChatSessionItem['changes'] = {
 				files: detailOverrides.stats?.fileCount || 0,
 				insertions: detailOverrides.stats?.added || 0,
 				deletions: detailOverrides.stats?.removed || 0
 			};
-			if (hasValidDiff(diffs)) {
+			if (hasSessionDiff(diffs)) {
 				this.changes = diffs;
 			}
 		}
@@ -701,7 +711,6 @@ export class MainThreadChatSessions extends Disposable implements MainThreadChat
 
 	constructor(
 		private readonly _extHostContext: IExtHostContext,
-		@IAgentSessionsService private readonly _agentSessionsService: IAgentSessionsService,
 		@IChatSessionsService private readonly _chatSessionsService: IChatSessionsService,
 		@IChatService private readonly _chatService: IChatService,
 		@IChatWidgetService private readonly _chatWidgetService: IChatWidgetService,
@@ -729,13 +738,6 @@ export class MainThreadChatSessions extends Disposable implements MainThreadChat
 			}
 		}));
 
-		this._register(this._agentSessionsService.model.onDidChangeSessionArchivedState(session => {
-			for (const [handle, { chatSessionType }] of this._itemControllerRegistrations) {
-				if (chatSessionType === session.providerType) {
-					this._proxy.$onDidChangeChatSessionItemState(handle, session.resource, session.isArchived());
-				}
-			}
-		}));
 	}
 
 	private _getHandleForSessionType(chatSessionType: string): number | undefined {

@@ -72,7 +72,7 @@ export const IChatPhoneInputPresenter = createDecorator<IChatPhoneInputPresenter
  * Workbench-layer hook for phone-only chat-input picker presentation.
  *
  * The default singleton is a no-op (`enabled === false`, sheet calls
- * resolve immediately). The agents-window layer (`vs/sessions`) registers
+ * resolve immediately). A host can register
  * a real implementation via {@link setImpl} that opens the same bottom-
  * sheet picker the empty new-chat input already uses.
  *
@@ -143,7 +143,7 @@ registerSingleton(IChatPhoneInputPresenter, ChatPhoneInputPresenterService, Inst
  * unified bottom sheet through the {@link IChatPhoneInputPresenter}.
  *
  * Visually mirrors the button used in the empty new-chat input (see
- * `MobileChatInputConfigPicker` in `vs/sessions`) so the two chat-input
+ * `MobileChatInputConfigPicker`) so the two chat-input
  * surfaces present a consistent mobile experience.
  */
 export class MobileChatInputCombinedPickerActionItem extends BaseActionViewItem {

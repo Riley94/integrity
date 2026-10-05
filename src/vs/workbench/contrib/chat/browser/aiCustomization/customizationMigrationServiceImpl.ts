@@ -12,18 +12,12 @@ import { getChatSessionType } from '../../common/model/chatUri.js';
 import { PromptsType } from '../../common/promptSyntax/promptTypes.js';
 import { CustomizationMigration, CustomizationMigrationType, FileCustomizationMigration, FileCustomizationMigrationType, getCustomizationMigrationTargetType, ICustomizationMigrationService, isPromptFileMigrationCandidate, isUserDataMigrationCandidate, McpServerCustomizationMigration, MigratableConfiguration } from '../../common/promptSyntax/service/customizationMigrationService.js';
 import { IPromptsService } from '../../common/promptSyntax/service/promptsService.js';
-import { IAgentHostActiveClientService } from '../agentSessions/agentHost/agentHostActiveClientService.js';
-import { IAgentHostCustomizationService } from '../agentSessions/agentHost/agentHostCustomizationService.js';
-import { AgentHostMcpServerApplicability } from '../agentSessions/agentHost/agentHostMcpServerSupport.js';
-
 export class CustomizationMigrationService implements ICustomizationMigrationService {
 	declare readonly _serviceBrand: undefined;
 
 	constructor(
 		@IPromptsService private readonly promptsService: IPromptsService,
 		@ICustomizationHarnessService private readonly customizationHarnessService: ICustomizationHarnessService,
-		@IAgentHostActiveClientService private readonly activeClientService: IAgentHostActiveClientService,
-		@IAgentHostCustomizationService private readonly agentHostCustomizationService: IAgentHostCustomizationService,
 	) { }
 
 	computeMigration(sessionResource: URI, type: FileCustomizationMigrationType): Promise<FileCustomizationMigration>;
@@ -108,31 +102,8 @@ export class CustomizationMigrationService implements ICustomizationMigrationSer
 		return { type, files: filteredCandidates.map(customization => customization.uri), candidates: filteredCandidates };
 	}
 
-	private async computeMcpServerMigration(sessionResource: URI): Promise<McpServerCustomizationMigration> {
-		const roots = this.agentHostCustomizationService.getWorkingDirectories(sessionResource).map(path => URI.file(path));
-		const scope = this.activeClientService.acquireMcpServerSupportScope(getChatSessionType(sessionResource), roots);
-		if (!scope) {
-			return this.emptyMcpServerMigration();
-		}
-
-		try {
-			await scope.whenResolved();
-			const snapshot = scope.support.get();
-			return {
-				type: CustomizationMigrationType.McpServers,
-				servers: snapshot.servers
-					.filter(server => server.applicability !== AgentHostMcpServerApplicability.OutsideCurrentScope)
-					.map(server => ({
-						id: server.id,
-						name: server.name,
-						supported: server.compatibility.kind === 'supported',
-					})),
-				discoveryComplete: snapshot.discoveryComplete,
-				coverage: snapshot.coverage,
-			};
-		} finally {
-			scope.dispose();
-		}
+	private async computeMcpServerMigration(_sessionResource: URI): Promise<McpServerCustomizationMigration> {
+		return this.emptyMcpServerMigration();
 	}
 
 	private emptyMcpServerMigration(): McpServerCustomizationMigration {

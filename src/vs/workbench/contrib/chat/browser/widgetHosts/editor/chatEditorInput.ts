@@ -17,12 +17,9 @@ import { ConfirmResult, IDialogService } from '../../../../../../platform/dialog
 import { IConfigurationService } from '../../../../../../platform/configuration/common/configuration.js';
 import { IInstantiationService } from '../../../../../../platform/instantiation/common/instantiation.js';
 import { ILogService } from '../../../../../../platform/log/common/log.js';
-import { ITelemetryService } from '../../../../../../platform/telemetry/common/telemetry.js';
-import { IProgressService, ProgressLocation } from '../../../../../../platform/progress/common/progress.js';
 import { IStorageService } from '../../../../../../platform/storage/common/storage.js';
 import { registerIcon } from '../../../../../../platform/theme/common/iconRegistry.js';
 import { IWorkspaceContextService } from '../../../../../../platform/workspace/common/workspace.js';
-import { IAgentHostEnablementService } from '../../../../../../platform/agentHost/common/agentHostEnablementService.js';
 import { EditorInputCapabilities, IEditorIdentifier, IEditorSerializer, IUntypedEditorInput, Verbosity } from '../../../../../common/editor.js';
 import { EditorInput, IEditorCloseHandler } from '../../../../../common/editor/editorInput.js';
 import { IChatModelReference, IChatService } from '../../../common/chatService/chatService.js';
@@ -31,9 +28,6 @@ import { ChatAgentLocation, ChatEditorTitleMaxLength, getDefaultNewChatSessionTy
 import { IChatEditingSession, ModifiedFileEntryState } from '../../../common/editing/chatEditingService.js';
 import { IChatModel } from '../../../common/model/chatModel.js';
 import { LocalChatSessionUri, getChatSessionType, getNewChatSessionResource, isUntitledChatSession } from '../../../common/model/chatUri.js';
-import { IAgentHostConnectionsService } from '../../../../../../platform/agentHost/common/agentHostConnectionsService.js';
-import { adoptLegacyCopilotCliResource, LEGACY_MIGRATION_RESTORE_TIMEOUT_MS } from '../../agentSessions/agentHost/agentHostLegacyMigration.js';
-import { migratedCopilotCliResource } from '../../copilotCliEventsUri.js';
 import { IClearEditingSessionConfirmationOptions } from '../../actions/chatActions.js';
 import type { IChatEditorOptions } from './chatEditor.js';
 
@@ -77,10 +71,6 @@ export class ChatEditorInput extends EditorInput implements IEditorCloseHandler 
 		@IStorageService private readonly storageService: IStorageService,
 		@ILogService private readonly logService: ILogService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
-		@IAgentHostEnablementService private readonly agentHostEnablementService: IAgentHostEnablementService,
-		@IAgentHostConnectionsService private readonly agentHostConnectionsService: IAgentHostConnectionsService,
-		@ITelemetryService private readonly telemetryService: ITelemetryService,
-		@IProgressService private readonly progressService: IProgressService,
 	) {
 		super();
 
@@ -143,7 +133,7 @@ export class ChatEditorInput extends EditorInput implements IEditorCloseHandler 
 		const sourceType = this._sessionResource ? getChatSessionType(this._sessionResource) : undefined;
 		if (sourceType !== undefined
 			&& (sourceType === localChatSessionType || isAgentHostTarget(sourceType))
-			&& isNewChatSessionTypeUsable(sourceType, this.configurationService, this.chatSessionsService, this.workspaceContextService.getWorkspace(), this.agentHostEnablementService.enabled.get())) {
+			&& isNewChatSessionTypeUsable(sourceType, this.configurationService, this.chatSessionsService, this.workspaceContextService.getWorkspace(), false)) {
 			return getNewChatSessionResource(sourceType);
 		}
 		return ChatEditorInput.getNewEditorUri();
@@ -253,23 +243,6 @@ export class ChatEditorInput extends EditorInput implements IEditorCloseHandler 
 			// redirect, so the progress wrapper is skipped for every normal restore.
 			// Migration is invisible to the user, so the adopt runs under a subtle
 			// status-bar hint rather than a silent wait while the (cold) host settles.
-			if (migratedCopilotCliResource(this._sessionResource)) {
-				const migrated = await this.progressService.withProgress(
-					{ location: ProgressLocation.Window, title: nls.localize('chat.openingSession', "Opening chat…") },
-					() => adoptLegacyCopilotCliResource(
-						this.agentHostConnectionsService.ambientConnection,
-						this._sessionResource!,
-						this.logService,
-						this.configurationService,
-						this.telemetryService,
-						'restore',
-						LEGACY_MIGRATION_RESTORE_TIMEOUT_MS,
-					),
-				);
-				if (migrated) {
-					this._sessionResource = migrated;
-				}
-			}
 			try {
 				this.modelRef.value = await this.chatService.acquireOrLoadSession(this._sessionResource, ChatAgentLocation.Chat, CancellationToken.None, 'ChatEditorInput#resolve', this.options.sessionTypeSelectionReason);
 			} catch (error) {
@@ -282,7 +255,7 @@ export class ChatEditorInput extends EditorInput implements IEditorCloseHandler 
 			}
 
 			if (this.shouldReplaceEmptyLocalSession(this._sessionResource)) {
-				const defaultTypeAndReason = getDefaultNewChatSessionTypeAndReasonFromServices(this.configurationService, this.chatSessionsService, this.storageService, this.workspaceContextService.getWorkspace(), this.agentHostEnablementService.enabled.get(), undefined, this.agentHostEnablementService.managedSandboxEnforced.get());
+				const defaultTypeAndReason = getDefaultNewChatSessionTypeAndReasonFromServices(this.configurationService, this.chatSessionsService, this.storageService, this.workspaceContextService.getWorkspace(), false, undefined, false);
 				const defaultResource = getNewChatSessionResource(defaultTypeAndReason.sessionType);
 				if (getChatSessionType(defaultResource) !== localChatSessionType) {
 					let modelRef: IChatModelReference | undefined;
@@ -308,7 +281,7 @@ export class ChatEditorInput extends EditorInput implements IEditorCloseHandler 
 			if (this.options.explicitSessionType === localChatSessionType) {
 				this.modelRef.value = this.chatService.startNewLocalSession(ChatAgentLocation.Chat, { canUseTools: !inputType, debugOwner: 'ChatEditorInput#resolveExplicitLocal', sessionTypeSelectionReason: this.options.sessionTypeSelectionReason ?? 'explicitOverride' });
 			} else {
-				const defaultTypeAndReason = getDefaultNewChatSessionTypeAndReasonFromServices(this.configurationService, this.chatSessionsService, this.storageService, this.workspaceContextService.getWorkspace(), this.agentHostEnablementService.enabled.get(), undefined, this.agentHostEnablementService.managedSandboxEnforced.get());
+				const defaultTypeAndReason = getDefaultNewChatSessionTypeAndReasonFromServices(this.configurationService, this.chatSessionsService, this.storageService, this.workspaceContextService.getWorkspace(), false, undefined, false);
 				const defaultResource = getNewChatSessionResource(defaultTypeAndReason.sessionType);
 				if (getChatSessionType(defaultResource) === localChatSessionType) {
 					this.modelRef.value = this.chatService.startNewLocalSession(ChatAgentLocation.Chat, { canUseTools: !inputType, debugOwner: 'ChatEditorInput#resolveUntitled', sessionTypeSelectionReason: defaultTypeAndReason.selectionReason });
@@ -354,7 +327,7 @@ export class ChatEditorInput extends EditorInput implements IEditorCloseHandler 
 			&& this.options.explicitSessionType !== localChatSessionType
 			&& !!this.model
 			&& !this.model.hasRequests
-			&& getDefaultNewChatSessionType(this.configurationService, this.chatSessionsService, this.storageService, this.workspaceContextService.getWorkspace(), this.agentHostEnablementService.enabled.get(), undefined, this.agentHostEnablementService.managedSandboxEnforced.get()) !== localChatSessionType;
+			&& getDefaultNewChatSessionType(this.configurationService, this.chatSessionsService, this.storageService, this.workspaceContextService.getWorkspace(), false, undefined, false) !== localChatSessionType;
 	}
 
 	/**

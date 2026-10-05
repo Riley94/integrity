@@ -31,7 +31,7 @@ import { IChatEditorOptions } from './widgetHosts/editor/chatEditor.js';
 import { ChatInputPart } from './widget/input/chatInputPart.js';
 import { IChatWidgetContrib } from './widget/chatWidget.js';
 import { ICodeBlockActionContext, ICodeBlockRenderOptions } from './widget/chatContentParts/codeBlockPart.js';
-import { AgentSessionTarget } from './agentSessions/agentSessions.js';
+export type AgentSessionTarget = string;
 
 export { ChatOutline } from './chatOutline.js';
 

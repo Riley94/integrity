@@ -5,7 +5,6 @@
 
 import { constObservable } from '../../../../../base/common/observable.js';
 import { mock } from '../../../../../base/test/common/mock.js';
-import { buildAgentSessionLinkPresentation } from '../../../../../platform/agentHost/common/openSessionLink.js';
 import { ILinkPresentation, ILinkPresentationRule, ILinkPresentationService, ILinkPresentationWatcher } from '../../../../../platform/dataChannel/common/dataChannel.js';
 import { ChatRichLink } from '../../../../contrib/chat/browser/widget/chatContentParts/chatRichLink.js';
 import { ComponentFixtureContext, defineComponentFixture, defineThemedFixtureGroup } from '../fixtureUtils.js';
@@ -63,21 +62,6 @@ const githubPullRequestPresentation = buildGitHubPullRequestPresentation({
 });
 
 export default defineThemedFixtureGroup({ path: 'chat/' }, {
-	inChat: defineComponentFixture({
-		render: context => renderChatWidget(context, {
-			width: 720,
-			height: 320,
-			inputVisible: false,
-			linkPresentationService: createLinkPresentationService(buildAgentSessionLinkPresentation('Implement rich links', 'Agent session', 'inProgress')),
-			messages: [{
-				user: 'Continue the implementation',
-				assistant: [{
-					kind: 'markdown',
-					text: 'The [implementation session](agent-host-session://copilotcli/rich-links) is still working.',
-				}],
-			}],
-		}),
-	}),
 	githubPullRequestInChat: defineComponentFixture({
 		render: context => renderChatWidget(context, {
 			width: 720,
@@ -107,17 +91,6 @@ export default defineThemedFixtureGroup({ path: 'chat/' }, {
 				}],
 			}],
 		}),
-	}),
-	sessionStates: defineComponentFixture({
-		render: context => renderRichLinks(context, [
-			{ authoredLabel: 'Preparing implementation', presentation: buildAgentSessionLinkPresentation('Preparing implementation', undefined, 'untitled') },
-			{ authoredLabel: 'Implement rich links', presentation: buildAgentSessionLinkPresentation('Implement rich links', undefined, 'inProgress') },
-			{ authoredLabel: 'Review architecture', presentation: buildAgentSessionLinkPresentation('Review architecture', undefined, 'needsInput') },
-			{ authoredLabel: 'Update fixtures', presentation: buildAgentSessionLinkPresentation('Update fixtures', undefined, 'completed') },
-			{ authoredLabel: 'Run validation', presentation: buildAgentSessionLinkPresentation('Run validation', undefined, 'error') },
-			{ authoredLabel: 'Investigate tests', presentation: buildAgentSessionLinkPresentation('Investigate tests', undefined, 'inProgress', 'chat') },
-			{ authoredLabel: 'Resolving chat', presentation: { kind: 'resource', status: { kind: 'pending', label: 'Loading' } } },
-		]),
 	}),
 	presentationKinds: defineComponentFixture({
 		render: context => renderRichLinks(context, [

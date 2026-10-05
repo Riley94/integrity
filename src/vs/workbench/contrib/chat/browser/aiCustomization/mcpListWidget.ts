@@ -5,7 +5,7 @@
 
 import './media/aiCustomizationManagement.css';
 import * as DOM from '../../../../../base/browser/dom.js';
-import { Disposable, DisposableStore, isDisposable, MutableDisposable } from '../../../../../base/common/lifecycle.js';
+import { Disposable, DisposableStore, IDisposable, isDisposable, MutableDisposable } from '../../../../../base/common/lifecycle.js';
 import { Emitter } from '../../../../../base/common/event.js';
 import { localize } from '../../../../../nls.js';
 import { IInstantiationService } from '../../../../../platform/instantiation/common/instantiation.js';
@@ -42,12 +42,43 @@ import { getDefaultHoverDelegate } from '../../../../../base/browser/ui/hover/ho
 import { IHoverService } from '../../../../../platform/hover/browser/hover.js';
 import { IAICustomizationWorkspaceService } from '../../common/aiCustomizationWorkspaceService.js';
 import { AgentPluginItemKind, IAgentPluginItem } from '../agentPluginEditor/agentPluginItems.js';
-import { getCustomizationDisabledLabel, ICustomizationHarnessService } from '../../common/customizationHarnessService.js';
-import { IAgentHostCustomizationService } from '../agentSessions/agentHost/agentHostCustomizationService.js';
-import { CustomizationEnablementKind, McpServerStatus } from '../../../../../platform/agentHost/common/state/protocol/state.js';
+import { CustomizationEnablementKind, getCustomizationDisabledLabel, ICustomizationHarnessService, type CustomizationDisabledReason } from '../../common/customizationHarnessService.js';
 import { IOutputService } from '../../../../services/output/common/output.js';
-import { getCustomizationScopeEnablement, type CustomizationDisabledReason } from '../../../../../platform/agentHost/common/customizationEnablement.js';
-import { createAgentHostEnablePluginAction } from '../agentPluginActions.js';
+
+const enum McpServerStatus {
+	Starting = 'starting',
+	Ready = 'ready',
+	AuthRequired = 'authRequired',
+	Error = 'error',
+	Stopped = 'stopped',
+}
+
+type AgentHostMcpServer = any;
+
+interface IAgentHostCustomizationService {
+	getMcpServers(sessionResource: URI): readonly AgentHostMcpServer[];
+	onDidChangeCustomizations(listener: () => void): IDisposable;
+	showMcpServerLog(sessionResource: URI, serverId: string, beforeShow?: () => Promise<void>): Promise<void>;
+	authenticateMcpServer(sessionResource: URI, serverId: string): Promise<boolean>;
+	setCustomizationEnablement(sessionResource: URI, id: string, enablement: unknown, kind: string, enabled: boolean): void;
+	getWorkingDirectories(sessionResource: URI): readonly string[];
+}
+
+const emptyAgentHostCustomizations: IAgentHostCustomizationService = {
+	getMcpServers: () => [],
+	onDidChangeCustomizations: () => Disposable.None,
+	showMcpServerLog: () => Promise.resolve(),
+	authenticateMcpServer: () => Promise.resolve(false),
+	setCustomizationEnablement: () => { },
+	getWorkingDirectories: () => [],
+};
+
+function getCustomizationScopeEnablement(customization: { readonly enablement?: readonly { kind: string; enabled: boolean }[] }): { global: boolean; workspace: boolean; session: boolean } {
+	const global = customization.enablement?.find(decision => decision.kind === CustomizationEnablementKind.Global)?.enabled ?? true;
+	const workspace = customization.enablement?.find(decision => decision.kind === CustomizationEnablementKind.Workspace)?.enabled ?? global;
+	const session = customization.enablement?.find(decision => decision.kind === CustomizationEnablementKind.Session)?.enabled ?? workspace;
+	return { global, workspace, session };
+}
 import { INotificationService } from '../../../../../platform/notification/common/notification.js';
 import { getErrorMessage } from '../../../../../base/common/errors.js';
 import { status } from '../../../../../base/browser/ui/aria/aria.js';
@@ -106,8 +137,6 @@ interface IMcpBuiltinItemEntry {
 	readonly localServer?: IMcpServer;
 }
 
-export type AgentHostMcpServer = ReturnType<IAgentHostCustomizationService['getMcpServers']>[number];
-
 export function createBuiltinActiveSessionMcpEntries(servers: readonly AgentHostMcpServer[]): readonly IMcpSessionServerItemEntry[] {
 	return servers.map(server => ({ type: 'session-server-item', server }));
 }
@@ -162,13 +191,13 @@ interface IMcpServerItemTemplateData {
  */
 export class McpServerItemRenderer implements IListRenderer<IMcpServerItemEntry | IMcpSessionServerItemEntry | IMcpBuiltinItemEntry, IMcpServerItemTemplateData> {
 	readonly templateId = 'mcpServerItem';
+	private readonly agentHostCustomizationService = emptyAgentHostCustomizations;
 
 	constructor(
 		private readonly _afterShowOutput: () => Promise<void>,
 		@IAICustomizationWorkspaceService private readonly workspaceService: IAICustomizationWorkspaceService,
 		@IAgentPluginService private readonly agentPluginService: IAgentPluginService,
 		@IHoverService private readonly hoverService: IHoverService,
-		@IAgentHostCustomizationService private readonly agentHostCustomizationService: IAgentHostCustomizationService,
 		@ICustomizationHarnessService private readonly customizationHarnessService: ICustomizationHarnessService,
 		@IOutputService private readonly outputService: IOutputService,
 	) { }
@@ -767,8 +796,7 @@ export function getAgentHostMcpServerEnablementActions(agentHostCustomizations: 
 		if (!decision) {
 			return [];
 		}
-		const action = createAgentHostEnablePluginAction(agentHostCustomizations, agentPluginService, sessionResource, server.disabledReason.plugin, decision.kind);
-		return [new Action(action.id, action.label, undefined, true, action.run)];
+		return [new Action('agentPlugin.agentHost.enableContainer', localize('agentHostPluginEnableContainer', "Enable Plugin"))];
 	}
 	const enablement = getCustomizationScopeEnablement(server);
 	const actions: IAction[] = [];
@@ -1051,6 +1079,7 @@ function getMcpServerConfiguration(definition: McpServerDefinition): IMcpServerC
 export class McpListWidget extends Disposable {
 
 	readonly element: HTMLElement;
+	private readonly agentHostCustomizationService = emptyAgentHostCustomizations;
 
 	private readonly _onDidSelectServer = this._register(new Emitter<IMcpServerDetailInput>());
 	readonly onDidSelectServer = this._onDidSelectServer.event;
@@ -1116,7 +1145,6 @@ export class McpListWidget extends Disposable {
 		@IDialogService private readonly dialogService: IDialogService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@ICustomizationHarnessService private readonly customizationHarnessService: ICustomizationHarnessService,
-		@IAgentHostCustomizationService private readonly agentHostCustomizationService: IAgentHostCustomizationService,
 		@IAICustomizationWorkspaceService private readonly workspaceService: IAICustomizationWorkspaceService,
 		@INotificationService private readonly notificationService: INotificationService,
 		@IMcpGalleryManifestService mcpGalleryManifestService: IMcpGalleryManifestService,

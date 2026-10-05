@@ -6,7 +6,6 @@
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { isCancellationError, onUnexpectedError } from '../../../../base/common/errors.js';
 import { URI } from '../../../../base/common/uri.js';
-import { withChatSurfaceMeta } from '../../../../platform/agentHost/common/meta/agentChatSurfaceMeta.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { IChatModelReference, IChatService } from '../../chat/common/chatService/chatService.js';
@@ -33,9 +32,15 @@ export interface IInlineChatSessionResolver {
 	resolve(token: CancellationToken, languageId: string | undefined, targetUri: URI): Promise<IInlineChatSessionResolution | undefined>;
 }
 
-/** Builds the Agent Host metadata for an editor inline chat session. */
+/** Builds the chat-surface metadata for an editor inline chat session. */
 export function getInlineChatSessionMeta(languageId: string | undefined, targetUri: URI): Record<string, unknown> {
-	return withChatSurfaceMeta(undefined, { surface: 'editorInline', languageId, targetUri: targetUri.toString() })!;
+	return {
+		'vscode.chat.surface': {
+			surface: 'editorInline',
+			...(languageId !== undefined ? { languageId } : {}),
+			targetUri: targetUri.toString(),
+		},
+	};
 }
 
 /** Applies editor inline chat-specific Agent Host and local-session fallback policy. */

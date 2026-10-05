@@ -16,8 +16,6 @@ import { IsAuxiliaryWindowContext, IsSessionsWindowContext } from '../../../comm
 import { URI } from '../../../../base/common/uri.js';
 import { getNewChatSessionResource } from './model/chatUri.js';
 import { clearUserSelectedSessionType, getRememberedSessionType, storeUserSelectedSessionType } from './chatSessionTypePreference.js';
-import { IAgentHostEnablementService } from '../../../../platform/agentHost/common/agentHostEnablementService.js';
-
 export { ChatAIDisabledSettingId } from '../../../../platform/chat/common/chatSettings.js';
 
 export const enum BYOKUtilityModelDefault {
@@ -461,11 +459,8 @@ export function getDefaultNewChatSessionTypeAndReason(
 	const chatSessionsService = accessor.get(IChatSessionsService);
 	const storageService = accessor.get(IStorageService);
 	const workspace = accessor.get(IWorkspaceContextService).getWorkspace();
-	const agentHostEnablementService = accessor.get(IAgentHostEnablementService);
-	const agentHostEnabled = agentHostEnablementService.enabled.get();
-	const managedSandboxEnforced = agentHostEnablementService.managedSandboxEnforced.get();
 
-	return getDefaultNewChatSessionTypeAndReasonFromServices(configurationService, chatSessionsService, storageService, workspace, agentHostEnabled, options, managedSandboxEnforced);
+	return getDefaultNewChatSessionTypeAndReasonFromServices(configurationService, chatSessionsService, storageService, workspace, false, options, false);
 }
 
 function getUsableRememberedSessionType(

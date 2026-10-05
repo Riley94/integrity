@@ -8,8 +8,6 @@ import { observableValue } from '../../../../../../base/common/observable.js';
 import { URI } from '../../../../../../base/common/uri.js';
 import { mock } from '../../../../../../base/test/common/mock.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../../base/test/common/utils.js';
-import { IAgentSessionsModel } from '../../../browser/agentSessions/agentSessionsModel.js';
-import { IAgentSessionsService } from '../../../browser/agentSessions/agentSessionsService.js';
 import { IVoiceModelSelectionResult, IVoiceToolDispatchDelegate, resolveVoiceModel, VoiceToolDispatchService } from '../../../browser/voiceClient/voiceToolDispatchService.js';
 import { IChatQuestionAnswers, IChatService, IChatToolInvocation, ToolConfirmKind } from '../../../common/chatService/chatService.js';
 import { IChatModel } from '../../../common/model/chatModel.js';
@@ -59,7 +57,6 @@ suite('VoiceToolDispatchService - session actions', () => {
 	interface IActionHarnessOptions {
 		readonly currentResource?: URI;
 		readonly targetResource?: URI;
-		readonly agentSessionResources?: readonly URI[];
 		readonly chatModels?: readonly IChatModel[];
 		readonly selectModelResult?: IVoiceModelSelectionResult;
 		readonly switchSucceeds?: boolean;
@@ -73,18 +70,10 @@ suite('VoiceToolDispatchService - session actions', () => {
 		};
 		let currentResource = options.currentResource;
 		let targetResource = options.targetResource;
-		const agentSessionsService = new class extends mock<IAgentSessionsService>() {
-			override get model(): IAgentSessionsModel {
-				return {
-					sessions: (options.agentSessionResources ?? []).map(resource => ({ isArchived: () => false, resource })),
-				} as IAgentSessionsModel;
-			}
-		};
 		const chatService = new class extends mock<IChatService>() {
 			override readonly chatModels = observableValue<readonly IChatModel[]>('chatModels', options.chatModels ?? []);
 		};
 		const service = new VoiceToolDispatchService(
-			agentSessionsService,
 			chatService,
 			new class extends mock<ILanguageModelToolsService>() { },
 		);
@@ -120,7 +109,8 @@ suite('VoiceToolDispatchService - session actions', () => {
 
 	test('focusing a session also retargets subsequent voice turns', async () => {
 		const resource = URI.parse('agent-session://test/target');
-		const { service, calls } = createActionHarness({ agentSessionResources: [resource] });
+		const model = { sessionResource: resource } as IChatModel;
+		const { service, calls } = createActionHarness({ chatModels: [model] });
 
 		const result = await dispatch(service, 'focus_session', { coding_session_id: resource.toString() });
 
@@ -221,19 +211,14 @@ suite('VoiceToolDispatchService - respondToSession', () => {
 				return [{ id: requestId, response: { response: { value: parts } } }] as unknown as ReturnType<IChatModel['getRequests']>;
 			}
 		};
-		const agentSessionsService = new class extends mock<IAgentSessionsService>() {
-			override get model(): IAgentSessionsModel {
-				return { sessions: [{ isArchived: () => false, resource: sessionResource }] } as IAgentSessionsModel;
-			}
-		};
 		const chatService = new class extends mock<IChatService>() {
+			override readonly chatModels = observableValue<readonly IChatModel[]>('chatModels', [model]);
 			override getSession() {
 				return model as IChatModel;
 			}
 			override notifyQuestionCarouselAnswer() { }
 		};
 		return new VoiceToolDispatchService(
-			agentSessionsService,
 			chatService,
 			new class extends mock<ILanguageModelToolsService>() { },
 		);

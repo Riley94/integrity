@@ -64,8 +64,7 @@ import { ChatDynamicVariableModel } from '../../../attachments/chatDynamicVariab
 import { IChatService } from '../../../../common/chatService/chatService.js';
 import { getChatSessionType } from '../../../../common/model/chatUri.js';
 import { attachedContextCompletionAdditionalTriggerCharacters, computeCompletionRanges, escapeForCharClass, getAttachedContextCompletionMatch, getAttachedContextCompletionSortText, getCompletionRangeWord, IChatCompletionRangeResult, isEmptyUpToCompletionWord } from './chatInputCompletionUtils.js';
-import { getAgentSessionProviderIcon, AgentSessionProviders } from '../../../agentSessions/agentSessions.js';
-
+import { SessionType } from '../../../../common/chatSessionsService.js';
 /**
  * Regex matching a slash command word (e.g. `/foo`). Uses `\p{L}` for Unicode
  * letter matching, consistent with `isValidSlashCommandName`.
@@ -1038,12 +1037,12 @@ class BuiltinDynamicCompletions extends Disposable {
 				// User has typed #session: — fetch all sessions and show them inline
 				const allSessions: { title: string; sessionResource: URI; lastMessageDate: number; icon: ThemeIcon }[] = [];
 
-				const sessionProviderFilter = [AgentSessionProviders.Local, AgentSessionProviders.Background, AgentSessionProviders.AgentHostCopilot];
+				const sessionProviderFilter = [SessionType.Local, SessionType.CopilotCLI, SessionType.AgentHostCopilot];
 				for await (const group of this.chatSessionsService.getChatSessionItems(sessionProviderFilter, token)) {
 					if (token.isCancellationRequested) {
 						return;
 					}
-					const providerIcon = getAgentSessionProviderIcon(group.chatSessionType);
+					const providerIcon = Codicon.comment;
 					for (const item of group.items) {
 						allSessions.push({
 							title: item.label,

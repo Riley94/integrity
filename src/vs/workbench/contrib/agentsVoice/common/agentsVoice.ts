@@ -3,10 +3,8 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { ContextKeyExpr, RawContextKey } from '../../../../platform/contextkey/common/contextkey.js';
 import { IPolicyData } from '../../../../base/common/defaultAccount.js';
-import { Event } from '../../../../base/common/event.js';
 import { ChatContextKeys } from '../../chat/common/actions/chatContextKeys.js';
 
 import './agentsVoiceColors.js'; // Register custom voice theme colors
@@ -64,35 +62,4 @@ export const enum AgentsVoiceStorageKeys {
 	 */
 	IntroBannerShown = 'agentsVoice.introBannerShown',
 	MicrophoneDevice = 'agentsVoice.microphoneDevice',
-}
-
-export const IAgentsVoiceWindowService = createDecorator<IAgentsVoiceWindowService>('agentsVoiceWindowService');
-
-export interface IAgentsVoiceWindowService {
-	readonly _serviceBrand: undefined;
-
-	/**
-	 * Whether the floating voice window is currently open.
-	 */
-	readonly isOpen: boolean;
-
-	/**
-	 * Fires when the window opens or closes.
-	 */
-	readonly onDidChangeOpen: Event<boolean>;
-
-	/**
-	 * Opens the floating voice window. No-op if already open.
-	 */
-	openWindow(): Promise<void>;
-
-	/**
-	 * Closes the floating voice window. No-op if already closed.
-	 */
-	closeWindow(): void;
-
-	/**
-	 * Toggles the floating voice window open/closed.
-	 */
-	toggleWindow(): Promise<void>;
 }

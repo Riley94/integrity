@@ -6,8 +6,6 @@
 import './media/chatViewPane.css';
 import { $, addDisposableListener, append, EventHelper, EventType, getWindow, setVisibility } from '../../../../../../base/browser/dom.js';
 import { StandardMouseEvent } from '../../../../../../base/browser/mouseEvent.js';
-import { Button } from '../../../../../../base/browser/ui/button/button.js';
-import { Orientation, Sash } from '../../../../../../base/browser/ui/sash/sash.js';
 import { DomScrollableElement } from '../../../../../../base/browser/ui/scrollbar/scrollableElement.js';
 import { CancellationToken, CancellationTokenSource } from '../../../../../../base/common/cancellation.js';
 import { isCancellationError } from '../../../../../../base/common/errors.js';
@@ -20,9 +18,8 @@ import { getComparisonKey, isEqual } from '../../../../../../base/common/resourc
 import { ScrollbarVisibility } from '../../../../../../base/common/scrollable.js';
 import { URI } from '../../../../../../base/common/uri.js';
 import { localize } from '../../../../../../nls.js';
-import { MenuWorkbenchToolBar } from '../../../../../../platform/actions/browser/toolbar.js';
 import { MenuId } from '../../../../../../platform/actions/common/actions.js';
-import { CommandsRegistry, ICommandService } from '../../../../../../platform/commands/common/commands.js';
+import { CommandsRegistry } from '../../../../../../platform/commands/common/commands.js';
 import { IConfigurationService } from '../../../../../../platform/configuration/common/configuration.js';
 import { IContextKey, IContextKeyService } from '../../../../../../platform/contextkey/common/contextkey.js';
 import { IContextMenuService } from '../../../../../../platform/contextview/browser/contextView.js';
@@ -36,7 +33,6 @@ import { IOpenerService } from '../../../../../../platform/opener/common/opener.
 import { IStorageService, StorageScope, StorageTarget } from '../../../../../../platform/storage/common/storage.js';
 import { ITelemetryService } from '../../../../../../platform/telemetry/common/telemetry.js';
 import { IWorkspaceContextService } from '../../../../../../platform/workspace/common/workspace.js';
-import { defaultButtonStyles } from '../../../../../../platform/theme/browser/defaultStyles.js';
 import { editorBackground } from '../../../../../../platform/theme/common/colorRegistry.js';
 import { ChatViewTitleControl } from './chatViewTitleControl.js';
 import { IThemeService } from '../../../../../../platform/theme/common/themeService.js';
@@ -56,25 +52,16 @@ import { IChatModelReference, IChatService } from '../../../common/chatService/c
 import { IChatSessionsService, localChatSessionType } from '../../../common/chatSessionsService.js';
 import { LocalChatSessionUri, getChatSessionType, getNewChatSessionResource, isUntitledChatSession } from '../../../common/model/chatUri.js';
 import { ChatAgentLocation, ChatConfiguration, ChatModeKind, getDefaultNewChatSessionType, getDefaultNewChatSessionTypeAndReasonFromServices, getLocalFallbackSessionTypeSelectionReason, SessionTypeSelectionReason } from '../../../common/constants.js';
-import { AgentSessionsControl } from '../../agentSessions/agentSessionsControl.js';
-import { ACTION_ID_NEW_CHAT } from '../../actions/chatActions.js';
 import { ChatWidget, layoutChatWidgetForInputHeight } from '../../widget/chatWidget.js';
 import { ChatViewWelcomeController, IViewWelcomeDelegate } from '../../viewsWelcome/chatViewWelcomeController.js';
 import { IChatViewsWelcomeDescriptor } from '../../viewsWelcome/chatViewsWelcome.js';
 import { IWorkbenchLayoutService, LayoutSettings, Position } from '../../../../../services/layout/browser/layoutService.js';
-import { AgentSessionsViewerOrientation, AgentSessionsViewerPosition } from '../../agentSessions/agentSessions.js';
 import { IProgressService } from '../../../../../../platform/progress/common/progress.js';
 import { CHAT_WIDGET_VIEW_STATE_CACHE_LIMIT, ChatViewId, IChatWidgetService, IChatWidgetViewState, setModelPreservingInputTypedWhileLoading } from '../../chat.js';
 import { IActivityService, ProgressBadge } from '../../../../../services/activity/common/activity.js';
 import { disposableTimeout } from '../../../../../../base/common/async.js';
-import { AgentSessionsFilter, AgentSessionsGrouping } from '../../agentSessions/agentSessionsFilter.js';
-import { IAgentSessionsService } from '../../agentSessions/agentSessionsService.js';
-import { IAgentHostEnablementService } from '../../../../../../platform/agentHost/common/agentHostEnablementService.js';
-import { HoverPosition } from '../../../../../../base/browser/ui/hover/hoverWidget.js';
-import { IAgentSession } from '../../agentSessions/agentSessionsModel.js';
 import { ChatEntitlementContextKeys, IChatEntitlementService } from '../../../../../services/chat/common/chatEntitlementService.js';
 import { toErrorMessage } from '../../../../../../base/common/errorMessage.js';
-import { IHostService } from '../../../../../services/host/browser/host.js';
 import { IMicCaptureService } from '../../voiceClient/micCaptureService.js';
 import { ITtsPlaybackService } from '../../voiceClient/ttsPlaybackService.js';
 import { IVoiceSessionController } from '../../voiceClient/voiceSessionController.js';
@@ -83,7 +70,6 @@ import { isGlowingVoiceState, readVoiceGlowIntensity, resolveVoiceGlowColors, Vo
 import { createVoiceGlowController } from '../../voiceClient/voiceGlowController.js';
 import { combineVoiceInput } from '../../voiceClient/voiceInputUtils.js';
 import { IVoiceModelSelectionResult, resolveVoiceModel } from '../../voiceClient/voiceToolDispatchService.js';
-import { IAgentTitleBarStatusService } from '../../agentSessions/experiments/agentTitleBarStatusService.js';
 import { IVoicePlaybackService } from '../../../common/voicePlaybackService.js';
 import { VOICE_AGENT_PROGRESS_SETTING } from '../../../common/voiceClient/voiceClientService.js';
 import { IWorkbenchEnvironmentService } from '../../../../../services/environment/common/environmentService.js';
@@ -101,6 +87,16 @@ interface IChatViewPaneState extends Partial<IChatModelInputState> {
 interface IChatSessionAcquisitionResult {
 	modelRef: IChatModelReference | undefined;
 	localFallbackSelectionReason?: SessionTypeSelectionReason;
+}
+
+const enum AgentSessionsViewerOrientation {
+	Stacked = 1,
+	SideBySide = 2,
+}
+
+const enum AgentSessionsViewerPosition {
+	Left = 1,
+	Right = 2,
 }
 
 type ChatViewPaneOpenedClassification = {
@@ -160,21 +156,16 @@ export class ChatViewPane extends ViewPane implements IViewWelcomeDelegate {
 		@ITelemetryService private readonly telemetryService: ITelemetryService,
 		@ILifecycleService lifecycleService: ILifecycleService,
 		@IProgressService private readonly progressService: IProgressService,
-		@IAgentSessionsService private readonly agentSessionsService: IAgentSessionsService,
 		@IChatEntitlementService private readonly chatEntitlementService: IChatEntitlementService,
-		@ICommandService private readonly commandService: ICommandService,
 		@IActivityService private readonly activityService: IActivityService,
-		@IHostService private readonly hostService: IHostService,
 		@IMicCaptureService private readonly micCaptureService: IMicCaptureService,
 		@ITtsPlaybackService private readonly ttsPlaybackService: ITtsPlaybackService,
 		@IVoiceSessionController private readonly voiceSessionController: IVoiceSessionController,
 		@IVoiceInputModeService private readonly voiceInputModeService: IVoiceInputModeService,
 		@IChatWidgetService private readonly chatWidgetService: IChatWidgetService,
-		@IAgentTitleBarStatusService _agentTitleBarStatusService: IAgentTitleBarStatusService,
 		@IVoicePlaybackService _voicePlaybackService: IVoicePlaybackService,
 		@IWorkbenchEnvironmentService _workbenchEnvironmentService: IWorkbenchEnvironmentService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
-		@IAgentHostEnablementService private readonly agentHostEnablementService: IAgentHostEnablementService,
 		@IAccessibilityService private readonly accessibilityService: IAccessibilityService,
 	) {
 		super(options, keybindingService2, contextMenuService, configurationService, contextKeyService, viewDescriptorService, instantiationService, openerService, themeService, hoverService);
@@ -192,9 +183,6 @@ export class ChatViewPane extends ViewPane implements IViewWelcomeDelegate {
 			this.viewState.sessionId = undefined;
 			this.viewState.sessionResource = undefined;
 		}
-		this.sessionsViewerVisible = false; // will be updated from layout code
-		this.sessionsViewerSidebarWidth = Math.max(ChatViewPane.SESSIONS_SIDEBAR_MIN_WIDTH, this.viewState.sessionsSidebarWidth ?? ChatViewPane.SESSIONS_SIDEBAR_DEFAULT_WIDTH);
-
 		// Contextkeys
 		this.chatViewLocationContext = ChatContextKeys.panelLocation.bindTo(contextKeyService);
 		this.sessionsViewerOrientationContext = ChatContextKeys.agentSessionsViewerOrientation.bindTo(contextKeyService);
@@ -242,22 +230,6 @@ export class ChatViewPane extends ViewPane implements IViewWelcomeDelegate {
 			position: sideSessionsOnRightPosition ? Position.RIGHT : Position.LEFT,
 			location: viewLocation ?? ViewContainerLocation.AuxiliaryBar,
 		};
-	}
-
-	private getSessionHoverPosition() {
-		const viewLocation = this.viewDescriptorService.getViewLocationById(this.id);
-		const sideBarPosition = this.layoutService.getSideBarPosition();
-
-		if (this.sessionsViewerOrientation === AgentSessionsViewerOrientation.SideBySide) {
-			return viewLocation === ViewContainerLocation.Sidebar && sideBarPosition === Position.RIGHT ? HoverPosition.LEFT : HoverPosition.RIGHT;
-		}
-
-		return {
-			[Position.LEFT]: HoverPosition.RIGHT,
-			[Position.RIGHT]: HoverPosition.LEFT,
-			[Position.TOP]: HoverPosition.BELOW,
-			[Position.BOTTOM]: HoverPosition.ABOVE
-		}[viewLocation === ViewContainerLocation.Panel ? this.layoutService.getPanelPosition() : sideBarPosition];
 	}
 
 	private updateViewPaneClasses(fromEvent: boolean): void {
@@ -393,20 +365,9 @@ export class ChatViewPane extends ViewPane implements IViewWelcomeDelegate {
 	}
 
 	private createControls(parent: HTMLElement): void {
-
-		// Sessions Control
-		const sessionsControl = this.createSessionsControl(parent);
-
-		// Welcome Control (used to show chat specific extension provided welcome views via `chatViewsWelcome` contribution point)
 		const welcomeController = this.welcomeController = this._register(this.instantiationService.createInstance(ChatViewWelcomeController, parent, this, ChatAgentLocation.Chat));
-
-		// Chat Control
 		const chatWidget = this.createChatControl(parent);
-
-		// Controls Listeners
-		this.registerControlsListeners(sessionsControl, chatWidget, welcomeController);
-
-		// Update sessions control visibility when all controls are created
+		this.registerControlsListeners(chatWidget, welcomeController);
 		this.updateSessionsControlVisibility();
 	}
 
@@ -827,103 +788,17 @@ export class ChatViewPane extends ViewPane implements IViewWelcomeDelegate {
 
 	//#region Sessions Control
 
-	private static readonly SESSIONS_SIDEBAR_MIN_WIDTH = 200;
-	private static readonly SESSIONS_SIDEBAR_SNAP_THRESHOLD = this.SESSIONS_SIDEBAR_MIN_WIDTH / 2; // snap to hide when dragged below half of minimum width
 	private static readonly SESSIONS_SIDEBAR_DEFAULT_WIDTH = 300;
-	private static readonly SESSIONS_SIDEBAR_BORDER_WIDTH = 1;
 	private static readonly CHAT_WIDGET_DEFAULT_WIDTH = 300;
 	private static readonly SESSIONS_SIDEBAR_VIEW_MIN_WIDTH = this.CHAT_WIDGET_DEFAULT_WIDTH + this.SESSIONS_SIDEBAR_DEFAULT_WIDTH;
 
 	private sessionsContainer: HTMLElement | undefined;
-	private sessionsTitleContainer: HTMLElement | undefined;
-	private sessionsTitle: HTMLElement | undefined;
-	private sessionsNewButtonContainer: HTMLElement | undefined;
-	private sessionsControlContainer: HTMLElement | undefined;
-	private sessionsControl: AgentSessionsControl | undefined;
-
-	get agentSessionsControl(): AgentSessionsControl | undefined { return this.sessionsControl; }
-
-	private sessionsViewerVisible: boolean;
+	private sessionsViewerVisible = false;
 	private sessionsViewerOrientation = AgentSessionsViewerOrientation.Stacked;
 	private sessionsViewerOrientationConfiguration: 'stacked' | 'sideBySide' = 'sideBySide';
 	private sessionsViewerOrientationContext: IContextKey<AgentSessionsViewerOrientation>;
 	private sessionsViewerVisibilityContext: IContextKey<boolean>;
 	private sessionsViewerPositionContext: IContextKey<AgentSessionsViewerPosition>;
-	private sessionsViewerSidebarWidth: number;
-	private sessionsViewerSash: Sash | undefined;
-	private readonly sessionsViewerSashDisposables = this._register(new MutableDisposable<DisposableStore>());
-
-	private createSessionsControl(parent: HTMLElement): AgentSessionsControl {
-		const sessionsContainer = this.sessionsContainer = parent.appendChild($('.agent-sessions-container'));
-
-		// Sessions Title
-		const sessionsTitleContainer = this.sessionsTitleContainer = append(sessionsContainer, $('.agent-sessions-title-container'));
-		const sessionsTitle = this.sessionsTitle = append(sessionsTitleContainer, $('span.agent-sessions-title'));
-		sessionsTitle.textContent = localize('sessions', "Sessions");
-		this._register(addDisposableListener(sessionsTitle, EventType.CLICK, () => {
-			this.sessionsControl?.scrollToTop();
-			this.sessionsControl?.focus();
-		}));
-
-		// Sessions Toolbar
-		const sessionsToolbarContainer = append(sessionsTitleContainer, $('.agent-sessions-toolbar'));
-		const sessionsToolbar = this._register(this.instantiationService.createInstance(MenuWorkbenchToolBar, sessionsToolbarContainer, MenuId.AgentSessionsToolbar, {
-			menuOptions: { shouldForwardArgs: true }
-		}));
-
-		// Sessions Filter
-		const sessionsFilter = this._register(this.instantiationService.createInstance(AgentSessionsFilter, {
-			filterMenuId: MenuId.AgentSessionsViewerFilterSubMenu,
-			groupResults: () => this.sessionsViewerOrientation === AgentSessionsViewerOrientation.Stacked ? AgentSessionsGrouping.Capped : AgentSessionsGrouping.Date
-		}));
-		this._register(Event.runAndSubscribe(sessionsFilter.onDidChange, () => {
-			sessionsToolbarContainer.classList.toggle('filtered', !sessionsFilter.isDefault());
-		}));
-
-		// New Session Button
-		const newSessionButtonContainer = this.sessionsNewButtonContainer = append(sessionsContainer, $('.agent-sessions-new-button-container'));
-		const newSessionButton = this._register(new Button(newSessionButtonContainer, { ...defaultButtonStyles, secondary: true }));
-		newSessionButton.label = localize('newSession', "New Session");
-		const createNewChat = () => this.commandService.executeCommand(ACTION_ID_NEW_CHAT, this.getActionsContext());
-		this._register(newSessionButton.onDidClick(createNewChat));
-
-		// Sessions Control
-		this.sessionsControlContainer = append(sessionsContainer, $('.agent-sessions-control-container'));
-		const sessionsControl = this.sessionsControl = this._register(this.instantiationService.createInstance(AgentSessionsControl, this.sessionsControlContainer, {
-			source: 'chatViewPane',
-			filter: sessionsFilter,
-			overrideStyles: this.getLocationBasedColors().listOverrideStyles,
-			createNewChat,
-			getHoverPosition: () => this.getSessionHoverPosition(),
-			trackActiveEditorSession: () => {
-				return !this._widget || this._widget.isEmpty(); // only track and reveal if chat widget is empty
-			},
-			overrideSessionOpenOptions: openEvent => {
-				if (this.sessionsViewerOrientation === AgentSessionsViewerOrientation.Stacked && !openEvent.sideBySide) {
-					return { ...openEvent, editorOptions: { ...openEvent.editorOptions, preserveFocus: false /* focus the chat widget when opening from stacked sessions viewer since this closes the stacked viewer */ } };
-				}
-				return openEvent;
-			},
-		}));
-		this._register(this.onDidChangeBodyVisibility(visible => sessionsControl.setVisible(visible)));
-
-		sessionsToolbar.context = sessionsControl;
-
-		// Refresh sessions when window gets focus to compensate for missing events
-		this._register(this.hostService.onDidChangeFocus(hasFocus => {
-			if (hasFocus) {
-				sessionsControl.refresh();
-			}
-		}));
-
-		// Deal with orientation configuration
-		this._register(Event.runAndSubscribe(Event.filter(this.configurationService.onDidChangeConfiguration, e => e.affectsConfiguration(ChatConfiguration.ChatViewSessionsOrientation)), e => {
-			const newSessionsViewerOrientationConfiguration = this.configurationService.getValue<'stacked' | 'sideBySide' | unknown>(ChatConfiguration.ChatViewSessionsOrientation);
-			this.doUpdateConfiguredSessionsViewerOrientation(newSessionsViewerOrientationConfiguration, { updateConfiguration: false, layout: !!e });
-		}));
-
-		return sessionsControl;
-	}
 
 	getSessionsViewerOrientation(): AgentSessionsViewerOrientation {
 		return this.sessionsViewerOrientation;
@@ -1019,15 +894,9 @@ export class ChatViewPane extends ViewPane implements IViewWelcomeDelegate {
 		});
 	}
 
-	getFocusedSessions(): IAgentSession[] {
-		return this.sessionsControl?.getFocus() ?? [];
-	}
-
 	//#endregion
 
 	//#region Chat Control
-
-	private static readonly MIN_CHAT_WIDGET_HEIGHT = 116;
 
 	private _widget!: ChatWidget;
 	get widget(): ChatWidget { return this._widget; }
@@ -1103,7 +972,7 @@ export class ChatViewPane extends ViewPane implements IViewWelcomeDelegate {
 
 	//#endregion
 
-	private registerControlsListeners(sessionsControl: AgentSessionsControl, chatWidget: ChatWidget, welcomeController: ChatViewWelcomeController): void {
+	private registerControlsListeners(chatWidget: ChatWidget, welcomeController: ChatViewWelcomeController): void {
 
 		// Sessions control visibility is impacted by multiple things:
 		// - chat widget being in empty state or showing a chat
@@ -1117,9 +986,6 @@ export class ChatViewPane extends ViewPane implements IViewWelcomeDelegate {
 			Event.filter(this.configurationService.onDidChangeConfiguration, e => e.affectsConfiguration(ChatConfiguration.ChatViewSessionsEnabled)),
 			Event.filter(this.contextKeyService.onDidChangeContext, e => e.affectsSome(hasByokModelsContextKeys))
 		)(() => {
-			if (this.sessionsViewerOrientation === AgentSessionsViewerOrientation.Stacked) {
-				sessionsControl.clearFocus(); // improve visual appearance when switching visibility by clearing focus
-			}
 			const { changed: visibilityChanged } = this.updateSessionsControlVisibility();
 			if (visibilityChanged) {
 				this.relayout();
@@ -1131,47 +997,6 @@ export class ChatViewPane extends ViewPane implements IViewWelcomeDelegate {
 			const model = chatWidget.viewModel?.model;
 			this.titleControl?.update(model);
 			this._currentSessionResource.set(chatWidget.viewModel?.sessionResource, undefined);
-
-			if (this.sessionsViewerOrientation === AgentSessionsViewerOrientation.Stacked) {
-				return; // only reveal in side-by-side mode
-			}
-
-			const sessionResource = chatWidget.viewModel?.sessionResource;
-			if (sessionResource) {
-				const revealed = sessionsControl.reveal(sessionResource);
-				if (!revealed) {
-					// Session doesn't exist in the list yet (e.g., new untitled session),
-					// clear the selection so the list doesn't show stale selection
-					sessionsControl.clearFocus();
-				}
-			}
-		}));
-
-		// When sessions change (e.g., after first message in a new session)
-		// reveal it unless the user is interacting with the list already
-		this._register(this.agentSessionsService.model.onDidChangeSessions(() => {
-			if (this.sessionsViewerOrientation === AgentSessionsViewerOrientation.Stacked) {
-				return; // only reveal in side-by-side mode
-			}
-
-			if (sessionsControl.hasFocusOrSelection()) {
-				return; // do not reveal if user is interacting with sessions control
-			}
-
-			const sessionResource = chatWidget.viewModel?.sessionResource;
-			if (sessionResource) {
-				sessionsControl.reveal(sessionResource);
-			}
-		}));
-
-		// When the currently displayed session is archived, start a new session
-		this._register(this.agentSessionsService.model.onDidChangeSessionArchivedState(e => {
-			if (e.isArchived()) {
-				const currentSessionResource = chatWidget.viewModel?.sessionResource;
-				if (currentSessionResource && isEqual(currentSessionResource, e.resource)) {
-					this.clear();
-				}
-			}
 		}));
 
 		// When showing sessions stacked, adjust the height of the sessions list to make room for chat input
@@ -1271,7 +1096,7 @@ export class ChatViewPane extends ViewPane implements IViewWelcomeDelegate {
 	 */
 	private async acquireDefaultNewSession(token: CancellationToken, localFallbackSelectionReason?: SessionTypeSelectionReason): Promise<IChatSessionAcquisitionResult> {
 		const workspace = this.workspaceContextService.getWorkspace();
-		const defaultTypeAndReason = getDefaultNewChatSessionTypeAndReasonFromServices(this.configurationService, this.chatSessionsService, this.storageService, workspace, this.agentHostEnablementService.enabled.get(), undefined, this.agentHostEnablementService.managedSandboxEnforced.get());
+		const defaultTypeAndReason = getDefaultNewChatSessionTypeAndReasonFromServices(this.configurationService, this.chatSessionsService, this.storageService, workspace, false, undefined, false);
 		if (defaultTypeAndReason.sessionType === localChatSessionType) {
 			return { modelRef: this.chatService.startNewLocalSession(ChatAgentLocation.Chat, { debugOwner: 'ChatViewPane#acquireDefaultNewSession', sessionTypeSelectionReason: localFallbackSelectionReason ?? defaultTypeAndReason.selectionReason }) };
 		}
@@ -1321,7 +1146,7 @@ export class ChatViewPane extends ViewPane implements IViewWelcomeDelegate {
 
 	private shouldSkipRestoredLocalSession(sessionResource: URI, model: IChatModel): boolean {
 		const workspace = this.workspaceContextService.getWorkspace();
-		const defaultType = getDefaultNewChatSessionType(this.configurationService, this.chatSessionsService, this.storageService, workspace, this.agentHostEnablementService.enabled.get(), undefined, this.agentHostEnablementService.managedSandboxEnforced.get());
+		const defaultType = getDefaultNewChatSessionType(this.configurationService, this.chatSessionsService, this.storageService, workspace, false, undefined, false);
 		return defaultType !== localChatSessionType
 			&& getChatSessionType(sessionResource) === localChatSessionType
 			&& !model.hasRequests;
@@ -1390,20 +1215,6 @@ export class ChatViewPane extends ViewPane implements IViewWelcomeDelegate {
 
 		// Update the toolbar context with new sessionId
 		this.updateActions();
-
-		// Mark the old model as read when closing unless explicitly marked unread.
-		// Deferred because setRead fires _onDidChangeSessions which synchronously
-		// re-renders the sessions list (~250ms), and that doesn't need to block
-		// the new chat from displaying.
-		if (oldModelResource) {
-			const capturedOldResource = oldModelResource;
-			this._register(disposableTimeout(() => {
-				const oldSession = this.agentSessionsService.model.getSession(capturedOldResource);
-				if (oldSession && !oldSession.isMarkedUnread()) {
-					oldSession.setRead(true);
-				}
-			}, 0));
-		}
 
 		return model;
 	}
@@ -1540,13 +1351,7 @@ export class ChatViewPane extends ViewPane implements IViewWelcomeDelegate {
 	}
 
 	focusSessions(): boolean {
-		if (this.sessionsContainer?.style.display === 'none') {
-			return false; // not visible
-		}
-
-		this.sessionsControl?.focus();
-
-		return true;
+		return false;
 	}
 
 	//#region Layout
@@ -1624,169 +1429,8 @@ export class ChatViewPane extends ViewPane implements IViewWelcomeDelegate {
 		this.lastDimensionsPerOrientation.set(this.sessionsViewerOrientation, { height, width });
 	}
 
-	private layoutSessionsControl(height: number, width: number): { heightReduction: number; widthReduction: number } {
-		let heightReduction = 0;
-		let widthReduction = 0;
-
-		if (!this.sessionsContainer || !this.sessionsControlContainer || !this.sessionsControl || !this.viewPaneContainer || !this.sessionsTitleContainer || !this.sessionsTitle) {
-			return { heightReduction, widthReduction };
-		}
-
-		const oldSessionsViewerOrientation = this.sessionsViewerOrientation;
-		let newSessionsViewerOrientation: AgentSessionsViewerOrientation;
-		switch (this.sessionsViewerOrientationConfiguration) {
-			// Stacked
-			case 'stacked':
-				newSessionsViewerOrientation = AgentSessionsViewerOrientation.Stacked;
-				break;
-			// Update orientation based on available width
-			default:
-				newSessionsViewerOrientation = width >= ChatViewPane.SESSIONS_SIDEBAR_VIEW_MIN_WIDTH ? AgentSessionsViewerOrientation.SideBySide : AgentSessionsViewerOrientation.Stacked;
-		}
-
-		this.sessionsViewerOrientation = newSessionsViewerOrientation;
-
-		if (newSessionsViewerOrientation === AgentSessionsViewerOrientation.SideBySide) {
-			this.viewPaneContainer.classList.toggle('sessions-control-orientation-sidebyside', true);
-			this.viewPaneContainer.classList.toggle('sessions-control-orientation-stacked', false);
-			this.sessionsViewerOrientationContext.set(AgentSessionsViewerOrientation.SideBySide);
-		} else {
-			this.viewPaneContainer.classList.toggle('sessions-control-orientation-sidebyside', false);
-			this.viewPaneContainer.classList.toggle('sessions-control-orientation-stacked', true);
-			this.sessionsViewerOrientationContext.set(AgentSessionsViewerOrientation.Stacked);
-		}
-
-		if (oldSessionsViewerOrientation !== this.sessionsViewerOrientation) {
-			const updatePromise = this.sessionsControl.update(); // Changing orientation has an impact to grouping, so we need to update
-
-			// Switching to side-by-side, reveal the current session after elements have loaded
-			if (this.sessionsViewerOrientation === AgentSessionsViewerOrientation.SideBySide) {
-				updatePromise.then(didUpdate => {
-					if (!didUpdate) {
-						return;
-					}
-
-					const sessionResource = this._widget?.viewModel?.sessionResource;
-					if (sessionResource) {
-						this.sessionsControl?.reveal(sessionResource);
-					}
-				});
-			}
-		}
-
-		// Ensure visibility is in sync before we layout
-		const { visible: sessionsContainerVisible } = this.updateSessionsControlVisibility();
-
-		// Handle Sash (only visible in side-by-side)
-		if (!sessionsContainerVisible || this.sessionsViewerOrientation === AgentSessionsViewerOrientation.Stacked) {
-			this.sessionsViewerSashDisposables.clear();
-			this.sessionsViewerSash = undefined;
-		} else if (this.sessionsViewerOrientation === AgentSessionsViewerOrientation.SideBySide) {
-			if (!this.sessionsViewerSashDisposables.value && this.viewPaneContainer) {
-				this.createSessionsViewerSash(this.viewPaneContainer, height, width);
-			}
-		}
-
-		if (!sessionsContainerVisible) {
-			return { heightReduction: 0, widthReduction: 0 };
-		}
-
-		const sessionsTitleHeight = this.sessionsTitleContainer.offsetHeight;
-		let availableSessionsHeight = height - sessionsTitleHeight;
-		let reservedChatWidgetHeight = 0;
-		if (this.sessionsViewerOrientation === AgentSessionsViewerOrientation.Stacked) {
-			reservedChatWidgetHeight = Math.max(ChatViewPane.MIN_CHAT_WIDGET_HEIGHT, this._widget?.input?.height.get() ?? 0);
-			availableSessionsHeight -= reservedChatWidgetHeight;
-		} else {
-			availableSessionsHeight -= this.sessionsNewButtonContainer?.offsetHeight ?? 0;
-		}
-		availableSessionsHeight = Math.max(0, availableSessionsHeight);
-
-		// Show as sidebar
-		if (this.sessionsViewerOrientation === AgentSessionsViewerOrientation.SideBySide) {
-			const sessionsViewerSidebarWidth = this.computeEffectiveSideBySideSessionsSidebarWidth(width);
-
-			this.sessionsControlContainer.style.height = `${availableSessionsHeight}px`;
-			this.sessionsControlContainer.style.width = `${sessionsViewerSidebarWidth}px`;
-			this.sessionsControl.layout(availableSessionsHeight, sessionsViewerSidebarWidth);
-			this.sessionsViewerSash?.layout();
-
-			heightReduction = 0; // side by side to chat widget
-			widthReduction = sessionsViewerSidebarWidth + ChatViewPane.SESSIONS_SIDEBAR_BORDER_WIDTH;
-		}
-
-		// Show stacked
-		else {
-			this.sessionsControlContainer.style.height = `${availableSessionsHeight}px`;
-			this.sessionsControlContainer.style.width = ``;
-			this.sessionsControl.layout(availableSessionsHeight, width);
-
-			heightReduction = sessionsTitleHeight + availableSessionsHeight;
-			widthReduction = 0; // stacked on top of the chat widget
-		}
-
-		return { heightReduction, widthReduction };
-	}
-
-	private computeEffectiveSideBySideSessionsSidebarWidth(width: number, sessionsViewerSidebarWidth = this.sessionsViewerSidebarWidth): number {
-		return Math.max(
-			ChatViewPane.SESSIONS_SIDEBAR_MIN_WIDTH,			// never smaller than min width for side by side sessions
-			Math.min(
-				sessionsViewerSidebarWidth,
-				width - ChatViewPane.CHAT_WIDGET_DEFAULT_WIDTH	// never so wide that chat widget is smaller than default width
-			)
-		);
-	}
-
-	getLastDimensions(orientation: AgentSessionsViewerOrientation): { height: number; width: number } | undefined {
-		return this.lastDimensionsPerOrientation.get(orientation);
-	}
-
-	private createSessionsViewerSash(container: HTMLElement, height: number, width: number): void {
-		const disposables = this.sessionsViewerSashDisposables.value = new DisposableStore();
-
-		const sash = this.sessionsViewerSash = disposables.add(new Sash(container, {
-			getVerticalSashLeft: () => {
-				const sessionsViewerSidebarWidth = this.computeEffectiveSideBySideSessionsSidebarWidth(this.lastDimensions?.width ?? width);
-				const { position } = this.getViewPositionAndLocation();
-				if (position === Position.RIGHT) {
-					return (this.lastDimensions?.width ?? width) - sessionsViewerSidebarWidth;
-				}
-
-				return sessionsViewerSidebarWidth;
-			}
-		}, { orientation: Orientation.VERTICAL }));
-
-		let sashStartWidth: number | undefined;
-		disposables.add(sash.onDidStart(() => sashStartWidth = this.sessionsViewerSidebarWidth));
-		disposables.add(sash.onDidEnd(() => sashStartWidth = undefined));
-
-		disposables.add(sash.onDidChange(e => {
-			if (sashStartWidth === undefined || !this.lastDimensions) {
-				return;
-			}
-
-			const { position } = this.getViewPositionAndLocation();
-			const delta = e.currentX - e.startX;
-			const newWidth = position === Position.RIGHT ? sashStartWidth - delta : sashStartWidth + delta;
-
-			if (newWidth < ChatViewPane.SESSIONS_SIDEBAR_SNAP_THRESHOLD) {
-				this.updateConfiguredSessionsViewerOrientation('stacked'); // snap to stacked when sized small enough
-				return;
-			}
-
-			this.sessionsViewerSidebarWidth = this.computeEffectiveSideBySideSessionsSidebarWidth(this.lastDimensions.width, newWidth);
-			this.viewState.sessionsSidebarWidth = this.sessionsViewerSidebarWidth;
-
-			this.layoutBody(this.lastDimensions.height, this.lastDimensions.width);
-		}));
-
-		disposables.add(sash.onDidReset(() => {
-			this.sessionsViewerSidebarWidth = ChatViewPane.SESSIONS_SIDEBAR_DEFAULT_WIDTH;
-			this.viewState.sessionsSidebarWidth = this.sessionsViewerSidebarWidth;
-
-			this.relayout();
-		}));
+	private layoutSessionsControl(_height: number, _width: number): { heightReduction: number; widthReduction: number } {
+		return { heightReduction: 0, widthReduction: 0 };
 	}
 
 	//#endregion

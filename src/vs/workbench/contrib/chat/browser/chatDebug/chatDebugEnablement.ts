@@ -9,11 +9,10 @@ import { DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { localize } from '../../../../../nls.js';
 import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
-import { AgentHostAhpJsonlLoggingSettingId } from '../../../../../platform/agentHost/common/agentService.js';
 import { defaultButtonStyles } from '../../../../../platform/theme/browser/defaultStyles.js';
 import { IPreferencesService } from '../../../../services/preferences/common/preferences.js';
+import { isAgentHostSessionResource } from '../../common/chatSessionsService.js';
 import { AgentHostAgentDebugLogEnabledSettingId, AGENT_DEBUG_LOG_FILE_LOGGING_ENABLED_SETTING } from '../../common/promptSyntax/promptTypes.js';
-import { isAgentHostSession } from './agentHostLogSources.js';
 
 const $ = DOM.$;
 
@@ -23,7 +22,7 @@ const $ = DOM.$;
  * other sessions use the local file-logging setting.
  */
 export function getChatDebugLoggingSettingId(sessionResource: URI | undefined): string {
-	return isAgentHostSession(sessionResource)
+	return !!sessionResource && isAgentHostSessionResource(sessionResource)
 		? AgentHostAgentDebugLogEnabledSettingId
 		: AGENT_DEBUG_LOG_FILE_LOGGING_ENABLED_SETTING;
 }
@@ -74,33 +73,6 @@ export function renderChatDebugLoggingDisabledMessage(
 		container,
 		getChatDebugLoggingSettingId(sessionResource),
 		localize('chatDebug.loggingDisabled', "Agent debug logging is turned off. Enable it to capture and view debug logs for this session."),
-		preferencesService,
-		disposables,
-	);
-}
-
-/**
- * Whether AHP (client↔host protocol) logging is enabled. When `false` no
- * protocol frames are captured, so the AHP Log view surfaces a hint to enable
- * the setting instead of empty content.
- */
-export function isWireLogLoggingEnabled(configurationService: IConfigurationService): boolean {
-	return configurationService.getValue<boolean>(AgentHostAhpJsonlLoggingSettingId);
-}
-
-/**
- * Renders a message into `container` explaining that AHP logging is disabled,
- * alongside a button that opens the relevant setting.
- */
-export function renderWireLogLoggingDisabledMessage(
-	container: HTMLElement,
-	preferencesService: IPreferencesService,
-	disposables: DisposableStore,
-): void {
-	renderEnableSettingMessage(
-		container,
-		AgentHostAhpJsonlLoggingSettingId,
-		localize('chatDebug.wireLogLoggingDisabled', "AHP logging is turned off. Enable it and reproduce the issue to capture and view client↔host protocol frames for this session."),
 		preferencesService,
 		disposables,
 	);

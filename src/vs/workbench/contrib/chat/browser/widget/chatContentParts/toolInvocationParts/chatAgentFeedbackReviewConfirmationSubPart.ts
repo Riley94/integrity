@@ -49,7 +49,7 @@ interface ICommentRow {
  * action to delete the comment. Accepting reveals (accepts) the checked
  * comments before approving the tool call; the comments and all actions are
  * fetched/applied via {@link AgentFeedbackReviewCommandId} commands so this
- * layer stays decoupled from the `vs/sessions` feedback model.
+ * layer stays decoupled from the feedback model.
  */
 export class ChatAgentFeedbackReviewConfirmationSubPart extends AbstractToolConfirmationSubPart {
 	public override readonly domNode: HTMLElement;

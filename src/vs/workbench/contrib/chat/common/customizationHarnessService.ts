@@ -21,8 +21,26 @@ import { CustomAgent } from './promptSyntax/service/promptsServiceImpl.js';
 import { ExtensionIdentifier } from '../../../../platform/extensions/common/extensions.js';
 import { getCanonicalPluginCommandId } from './plugins/agentPluginService.js';
 import { getChatSessionType, LocalChatSessionUri } from './model/chatUri.js';
-import { type CustomizationDisabledReason } from '../../../../platform/agentHost/common/customizationEnablement.js';
-import { CustomizationEnablementKind } from '../../../../platform/agentHost/common/state/protocol/state.js';
+export const enum CustomizationEnablementKind {
+	Global = 'global',
+	Workspace = 'workspace',
+	Session = 'session',
+}
+
+export type CustomizationDisabledReason =
+	| {
+		readonly source: 'scope';
+		readonly scope: CustomizationEnablementKind;
+	}
+	| {
+		readonly source: 'plugin';
+		readonly plugin: {
+			readonly id: string;
+			readonly name: string;
+			readonly uri: string;
+			readonly clientId?: string;
+		};
+	};
 
 
 export const ICustomizationHarnessService = createDecorator<ICustomizationHarnessService>('customizationHarnessService');

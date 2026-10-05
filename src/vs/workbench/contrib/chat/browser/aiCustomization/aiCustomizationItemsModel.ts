@@ -24,7 +24,7 @@ import { AICustomizationItemNormalizer, EmptyItemProviderItemSource, IAICustomiz
 import { PromptsServiceCustomizationItemProvider } from './promptsServiceCustomizationItemProvider.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { getChatSessionType } from '../../common/model/chatUri.js';
-import { isAgentHostTarget } from '../agentSessions/agentSessions.js';
+import { isAgentHostTarget } from '../../common/chatSessionsService.js';
 import { ILogService } from '../../../../../platform/log/common/log.js';
 
 

@@ -43,7 +43,7 @@ import { IndexedDBFileSystemProvider } from '../../platform/files/browser/indexe
 import { BrowserRequestService } from '../services/request/browser/requestService.js';
 import { IRequestService } from '../../platform/request/common/request.js';
 import { IUserDataInitializationService, IUserDataInitializer, UserDataInitializationService } from '../services/userData/browser/userDataInit.js';
-import { UserDataSyncStoreManagementService } from '../../platform/userDataSync/common/userDataSyncStoreService.js';
+import { NullUserDataSyncStoreManagementService } from '../../platform/userDataSync/common/nullUserDataSync.js';
 import { IUserDataSyncStoreManagementService } from '../../platform/userDataSync/common/userDataSync.js';
 import { ILifecycleService, WillShutdownEvent } from '../services/lifecycle/common/lifecycle.js';
 import { Event } from '../../base/common/event.js';
@@ -84,7 +84,6 @@ import { BrowserSocketFactory } from '../../platform/remote/browser/browserSocke
 import { VSBuffer } from '../../base/common/buffer.js';
 import { IStoredWorkspace } from '../../platform/workspaces/common/workspaces.js';
 import { UserDataProfileInitializer } from '../services/userDataProfile/browser/userDataProfileInit.js';
-import { UserDataSyncInitializer } from '../services/userDataSync/browser/userDataSyncInit.js';
 import { BrowserRemoteResourceLoader } from '../services/remote/browser/browserRemoteResourceHandler.js';
 import { BufferLogger } from '../../platform/log/common/bufferLog.js';
 import { FileLoggerService } from '../../platform/log/common/fileLog.js';
@@ -412,9 +411,8 @@ export class BrowserMain extends Disposable {
 		const requestService = new BrowserRequestService(remoteAgentService, configurationService, loggerService);
 		serviceCollection.set(IRequestService, requestService);
 
-		// Userdata Sync Store Management Service
-		const userDataSyncStoreManagementService = new UserDataSyncStoreManagementService(productService, configurationService, storageService);
-		serviceCollection.set(IUserDataSyncStoreManagementService, userDataSyncStoreManagementService);
+		// Settings Sync is disabled. The store is unset so later initializers skip it.
+		serviceCollection.set(IUserDataSyncStoreManagementService, new NullUserDataSyncStoreManagementService());
 
 
 		// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -433,7 +431,6 @@ export class BrowserMain extends Disposable {
 
 		// Userdata Initialize Service
 		const userDataInitializers: IUserDataInitializer[] = [];
-		userDataInitializers.push(new UserDataSyncInitializer(environmentService, secretStorageService, userDataSyncStoreManagementService, fileService, userDataProfilesService, storageService, productService, requestService, logService, uriIdentityService));
 		if (environmentService.options?.profile) {
 			userDataInitializers.push(new UserDataProfileInitializer(environmentService, fileService, userDataProfileService, storageService, logService, uriIdentityService, requestService));
 		}

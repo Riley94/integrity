@@ -22,7 +22,6 @@ import { IInstantiationService } from '../../../../../platform/instantiation/com
 import { KeybindingWeight } from '../../../../../platform/keybinding/common/keybindingsRegistry.js';
 import { ILogService } from '../../../../../platform/log/common/log.js';
 import { ITelemetryService } from '../../../../../platform/telemetry/common/telemetry.js';
-import { AgentHostAllowSignedOutWhenUsableSettingId } from '../../../../../platform/agentHost/common/agentService.js';
 import { IsSessionsWindowContext } from '../../../../common/contextkeys.js';
 import { ChatContextKeys } from '../../common/actions/chatContextKeys.js';
 import { buildCustomAgentHandoffsInfo, getHandoffId, IChatMode, IChatModeService, IChatModes } from '../../common/chatModes.js';
@@ -32,14 +31,11 @@ import { ChatStopCancellationNoopClassification, ChatStopCancellationNoopEvent, 
 import { ChatAgentLocation, ChatConfiguration, ChatModeKind } from '../../common/constants.js';
 import { ILanguageModelChatMetadata } from '../../common/languageModels.js';
 import { ILanguageModelToolsService } from '../../common/tools/languageModelToolsService.js';
-import { IChatSessionsService, localChatSessionType } from '../../common/chatSessionsService.js';
+import { localChatSessionType, SessionType } from '../../common/chatSessionsService.js';
 import { type IChatAcceptInputOptions, IChatWidget, IChatWidgetService } from '../chat.js';
-import { getAgentSessionProvider, AgentSessionProviders, AgentSessionTarget } from '../agentSessions/agentSessions.js';
 import { getEditingSessionContext } from '../chatEditing/chatEditingActions.js';
 import { ctxHasEditorModification, ctxHasRequestInProgress, ctxIsGlobalEditingSession } from '../chatEditing/chatEditingEditorContextKeys.js';
 import { ACTION_ID_NEW_CHAT, CHAT_CATEGORY, clearChatSessionPreservingType, handleCurrentEditingSession, handleModeSwitch } from './chatActions.js';
-import { CreateRemoteAgentJobAction } from './chatContinueInAction.js';
-
 export interface IVoiceChatExecuteActionContext {
 	readonly disableTimeout?: boolean;
 }
@@ -57,12 +53,6 @@ abstract class SubmitAction extends Action2 {
 		const telemetryService = accessor.get(ITelemetryService);
 		const widgetService = accessor.get(IChatWidgetService);
 		const widget = context?.widget ?? widgetService.lastFocusedWidget;
-
-		// Check if there's a pending delegation target
-		const pendingDelegationTarget = widget?.input.pendingDelegationTarget;
-		if (pendingDelegationTarget && pendingDelegationTarget !== AgentSessionProviders.Local) {
-			return await this.handleDelegation(accessor, widget, pendingDelegationTarget);
-		}
 
 		if (widget?.viewModel?.editing) {
 			const configurationService = accessor.get(IConfigurationService);
@@ -158,27 +148,6 @@ abstract class SubmitAction extends Action2 {
 			widget.viewModel.model.setCheckpoint(undefined);
 		}
 		widget?.acceptInput(context?.inputValue, context?.acceptInputOptions);
-	}
-
-	private async handleDelegation(accessor: ServicesAccessor, widget: IChatWidget, delegationTarget: Exclude<AgentSessionTarget, AgentSessionProviders.Local>): Promise<void> {
-		const chatSessionsService = accessor.get(IChatSessionsService);
-
-		// Find the contribution for the delegation target
-		const contributions = chatSessionsService.getAllChatSessionContributions();
-		const targetContribution = contributions.find(contrib => {
-			const providerType = getAgentSessionProvider(contrib.type);
-			return providerType === delegationTarget || contrib.type === delegationTarget;
-		});
-
-		if (!targetContribution) {
-			throw new Error(`No contribution found for delegation target: ${delegationTarget}`);
-		}
-
-		if (targetContribution.canDelegate === false) {
-			throw new Error(`The contribution for delegation target: ${delegationTarget} does not support delegation.`);
-		}
-
-		return new CreateRemoteAgentJobAction().run(accessor, targetContribution, widget);
 	}
 }
 
@@ -400,11 +369,7 @@ export class OpenModelPickerAction extends Action2 {
 						ContextKeyExpr.or(
 							ChatContextKeys.inAgentSessionsWelcome.negate(),
 							ChatContextKeys.chatSessionHasTargetedModels,
-							ChatContextKeys.agentSessionType.isEqualTo(AgentSessionProviders.Local),
-							ContextKeyExpr.and(
-								IsSessionsWindowContext,
-								ChatContextKeys.agentSessionType.isEqualTo(AgentSessionProviders.AgentHostCopilot),
-								ContextKeyExpr.equals(`config.${AgentHostAllowSignedOutWhenUsableSettingId}`, true)))
+							ChatContextKeys.agentSessionType.isEqualTo(SessionType.Local))
 					)
 			}
 		});
@@ -443,7 +408,7 @@ export class OpenPermissionPickerAction extends Action2 {
 						ChatContextKeys.inQuickChat.negate(),
 						ContextKeyExpr.or(
 							ChatContextKeys.lockedToCodingAgent.negate(),
-							ChatContextKeys.lockedCodingAgentId.isEqualTo(AgentSessionProviders.Background),
+							ChatContextKeys.lockedCodingAgentId.isEqualTo(SessionType.CopilotCLI),
 						),
 					)
 			}
@@ -494,7 +459,7 @@ export class OpenModePickerAction extends Action2 {
 						ContextKeyExpr.or(
 							ChatContextKeys.inAgentSessionsWelcome.negate(),
 							ChatContextKeys.chatSessionHasCustomAgentTarget,
-							ChatContextKeys.agentSessionType.isEqualTo(AgentSessionProviders.Local))),
+							ChatContextKeys.agentSessionType.isEqualTo(SessionType.Local))),
 					group: 'navigation',
 				},
 			]
@@ -643,7 +608,7 @@ export class ChatSessionPrimaryPickerAction extends Action2 {
 					when:
 						ContextKeyExpr.and(
 							ChatContextKeys.chatSessionHasModels,
-							ChatContextKeys.chatSessionType.isEqualTo(AgentSessionProviders.Cloud),
+							ChatContextKeys.chatSessionType.isEqualTo(SessionType.CopilotCloud),
 							ContextKeyExpr.or(
 								ChatContextKeys.lockedToCodingAgent,
 								ContextKeyExpr.and(
@@ -664,10 +629,10 @@ export class ChatSessionPrimaryPickerAction extends Action2 {
 					when:
 						ContextKeyExpr.and(
 							ChatContextKeys.chatSessionHasModels,
-							ChatContextKeys.chatSessionType.notEqualsTo(AgentSessionProviders.Cloud),
+							ChatContextKeys.chatSessionType.notEqualsTo(SessionType.CopilotCloud),
 							ContextKeyExpr.or(
 								IsSessionsWindowContext.negate(),
-								ChatContextKeys.chatSessionType.notEqualsTo(AgentSessionProviders.Background)
+								ChatContextKeys.chatSessionType.notEqualsTo(SessionType.CopilotCLI)
 							),
 							ContextKeyExpr.or(
 								ChatContextKeys.lockedToCodingAgent,

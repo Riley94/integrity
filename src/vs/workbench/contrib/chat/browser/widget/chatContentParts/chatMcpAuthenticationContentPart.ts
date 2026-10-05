@@ -10,11 +10,8 @@ import { escapeMarkdownSyntaxTokens, MarkdownString } from '../../../../../../ba
 import { Disposable, IDisposable, MutableDisposable } from '../../../../../../base/common/lifecycle.js';
 import { autorun, observableValue } from '../../../../../../base/common/observable.js';
 import { ThemeIcon } from '../../../../../../base/common/themables.js';
-import { URI } from '../../../../../../base/common/uri.js';
 import { localize } from '../../../../../../nls.js';
-import { McpServerStatus } from '../../../../../../platform/agentHost/common/state/protocol/state.js';
 import { IMarkdownRendererService } from '../../../../../../platform/markdown/browser/markdownRenderer.js';
-import { IAgentHostCustomizationService } from '../../agentSessions/agentHost/agentHostCustomizationService.js';
 import { IChatMcpAuthenticationRequired, IChatMcpAuthenticationRequiredServer } from '../../../common/chatService/chatService.js';
 import { ChatTreeItem } from '../../chat.js';
 import { IChatRendererContent } from '../../../common/model/chatViewModel.js';
@@ -46,7 +43,6 @@ export class ChatMcpAuthenticationContentPart extends Disposable implements ICha
 	constructor(
 		private readonly data: IChatMcpAuthenticationRequired,
 		@IMarkdownRendererService private readonly markdownRendererService: IMarkdownRendererService,
-		@IAgentHostCustomizationService private readonly agentHostCustomizationService: IAgentHostCustomizationService,
 	) {
 		super();
 		this.domNode = dom.$('.chat-mcp-servers-interaction');
@@ -60,7 +56,6 @@ export class ChatMcpAuthenticationContentPart extends Disposable implements ICha
 			this.render(servers, authenticating);
 			this.updateVisibility(servers, authenticating);
 		}));
-		this._register(this.agentHostCustomizationService.onDidChangeCustomizations(() => this.updateVisibility(this.data.servers.get(), this._authenticating.get())));
 	}
 
 	private render(servers: readonly IChatMcpAuthenticationRequiredServer[], authenticating: IChatMcpAuthenticationRequiredServer | undefined): void {
@@ -124,11 +119,9 @@ export class ChatMcpAuthenticationContentPart extends Disposable implements ICha
 	}
 
 	private async authenticate(): Promise<void> {
-		const sessionResource = URI.revive(this.data.sessionResource);
 		try {
 			for (const server of this.data.servers.get()) {
 				this._authenticating.set(server, undefined);
-				await this.agentHostCustomizationService.authenticateMcpServer(sessionResource, server.id);
 			}
 		} finally {
 			this._authenticating.set(undefined, undefined);
@@ -142,9 +135,7 @@ export class ChatMcpAuthenticationContentPart extends Disposable implements ICha
 			this._hasBeenVisible = true;
 			return;
 		}
-		const sessionResource = URI.revive(this.data.sessionResource);
-		const servers = this.agentHostCustomizationService.getMcpServers(sessionResource);
-		const visible = dataServers.some(server => servers.some(current => current.id === server.id && current.status === McpServerStatus.AuthRequired));
+		const visible = dataServers.length > 0;
 		this.domNode.style.display = visible ? '' : 'none';
 		if (visible) {
 			this._hasBeenVisible = true;
