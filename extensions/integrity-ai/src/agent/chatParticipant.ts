@@ -66,6 +66,7 @@ import {
 } from '../jev/forks';
 import { isAbortError } from '../jev/jevClient';
 import { classifyPrintedToolCall, parseJsonToolCall, printedToolCallMessage } from '../providers/jsonToolFallback';
+import { estimateContextUsage, promptTextFromMessages } from './contextUsage';
 
 const DEFAULT_MAX_STEPS = 24;
 
@@ -375,6 +376,10 @@ export async function runChatAgentLoop(
 		}
 		const holdProse = lookState.active || scratchpadPending || reviewPending;
 
+		// Report the prompt before the provider responds. The context meter stays
+		// hidden until some usage is recorded, including when the stream is aborted.
+		stream.usage(estimateContextUsage(promptTextFromMessages(messages), ''));
+
 		let response: vscode.LanguageModelChatResponse;
 		try {
 			response = await model.sendRequest(messages, {
@@ -418,8 +423,11 @@ export async function runChatAgentLoop(
 			}
 			const message = err instanceof Error ? err.message : String(err);
 			stream.markdown(`\n\n**Stream error:** ${message}`);
+			stream.usage(estimateContextUsage(promptTextFromMessages(messages), textOut));
 			return finishTurn();
 		}
+
+		stream.usage(estimateContextUsage(promptTextFromMessages(messages), textOut));
 
 		if (!toolCalls.length && textOut.trim()) {
 			const printed = classifyPrintedToolCall(textOut);
