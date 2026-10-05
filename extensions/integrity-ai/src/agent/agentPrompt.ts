@@ -3,6 +3,7 @@
  *  Licensed under the MIT License.
  *--------------------------------------------------------------------------------------------*/
 
+import { LOOK_PHASE_PROMPT, LOOK_PLAN_PROMPT } from './lookPhase';
 import { SCRATCHPAD_REQUIRED_PROMPT } from './scratchpadHostRule';
 import type { SessionFileRecord } from './sessionFiles';
 import type { AgentModeKind } from './toolNames';
@@ -56,6 +57,8 @@ export function toolTurnInstructions(tools: readonly SelectedToolPrompt[]): stri
  * `sessionFiles` are paths written earlier in this chat. Empty for the first turn.
  * `readSessionFilesBeforeEdit` adds the read-before-edit line. Set it only when the read tool
  * is already in `tools`, so a text-only turn is not told to call a tool it does not have.
+ * `lookBeforeEdit` adds the look-phase sentence. Set it only while edits are withheld.
+ * `plan` is the writer's plan after that phase. Empty until then.
  */
 export function buildSystemPrompt(
 	mode: AgentModeKind,
@@ -65,6 +68,8 @@ export function buildSystemPrompt(
 	requireScratchpad = false,
 	sessionFiles: readonly SessionFileRecord[] = [],
 	readSessionFilesBeforeEdit = false,
+	lookBeforeEdit = false,
+	plan = '',
 ): string {
 	const parts = [
 		'You are Integrity AI, a local-first coding assistant built into Integrity IDE.',
@@ -74,6 +79,9 @@ export function buildSystemPrompt(
 	];
 	if (requireScratchpad) {
 		parts.push(SCRATCHPAD_REQUIRED_PROMPT);
+	}
+	if (lookBeforeEdit) {
+		parts.push(LOOK_PHASE_PROMPT);
 	}
 	if (sessionFiles.length) {
 		const listed = sessionFiles.map(file => `- ${file.path} (${file.action})`).join('\n');
@@ -86,6 +94,9 @@ export function buildSystemPrompt(
 			lines.push('Read these files with integrity_read_file before editing them.');
 		}
 		parts.push(lines.join('\n'));
+	}
+	if (plan.trim()) {
+		parts.push(['\n--- Plan ---', plan.trim(), LOOK_PLAN_PROMPT].join('\n'));
 	}
 	if (agentRules.trim()) {
 		parts.push('\n--- Project agent rules ---\n' + agentRules.trim());

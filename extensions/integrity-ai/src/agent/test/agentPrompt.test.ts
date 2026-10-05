@@ -118,6 +118,26 @@ describe('buildSystemPrompt', () => {
 		assert.match(withRead, /Read these files with integrity_read_file before editing them/);
 	});
 
+	it('tells the writer to look before editing while that phase is active', () => {
+		const prompt = buildSystemPrompt('agent', '', '', [{
+			name: 'integrity_list_dir',
+			description: 'List a directory.',
+		}], false, [], false, true);
+		assert.match(prompt, /Look at the workspace before editing/);
+		assert.match(prompt, /what you will create or change/);
+		assert.doesNotMatch(prompt, /--- Plan ---/);
+	});
+
+	it('keeps the plan and requires a read before the next patch', () => {
+		const prompt = buildSystemPrompt('agent', '', '', [], false, [], false, false, 'Create calculator.py.');
+		assert.match(prompt, /--- Plan ---/);
+		assert.match(prompt, /Create calculator\.py\./);
+		assert.match(prompt, /Follow the plan/);
+		assert.match(prompt, /integrity_read_file before integrity_apply_patch or integrity_replace_string/);
+		assert.match(prompt, /has not been read since its last write/);
+		assert.doesNotMatch(prompt, /Look at the workspace before editing/);
+	});
+
 	it('tells the writer to run Python before answering when the host rule requires it', () => {
 		const prompt = buildSystemPrompt('agent', '', '', [{
 			name: 'integrity_scratchpad',

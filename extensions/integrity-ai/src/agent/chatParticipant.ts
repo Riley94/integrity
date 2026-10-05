@@ -16,6 +16,18 @@ import {
 	withReviewReadTool,
 	type EditReviewState,
 } from './editReview';
+import {
+	beginLookPhase,
+	emptyLookPhaseState,
+	emptyReadSinceWriteState,
+	finishLookPhase,
+	holdReplyForLookPhase,
+	noteLookObservation,
+	noteReadSinceWrite,
+	rejectionForUnreadEdit,
+	type LookPhaseState,
+	type ReadSinceWriteState,
+} from './lookPhase';
 import { loadAgentRules, type CodebaseSearchIndex } from './lmTools';
 import { extractPathFromInput } from './pathPolicy';
 import { scratchpadApprovalPreview } from './scratchpad';
@@ -29,7 +41,7 @@ import {
 	type SessionFileRecord,
 	type SessionHistoryTurn,
 } from './sessionFiles';
-import { buildThinkingRequest, THINKING_PART_ID, THINKING_SYSTEM_PROMPT, thinkingContextMessage } from './thinkingPass';
+import { THINKING_PART_ID } from './thinkingPass';
 import { EDIT_TOOLS, inferModeKind, IntegrityToolName, selectToolsForJev, type AgentModeKind } from './toolNames';
 import { parseModelId } from '../providers/modelId';
 import { ensureOllamaModelReady, isOllamaModelReady, ollamaModelNotReadyMessage } from '../ollama/ensureOllamaModel';
@@ -183,6 +195,9 @@ export async function runChatAgentLoop(
 	let selectedTools: SelectedToolPrompt[] = [];
 	let scratchpadRequired = false;
 	let readBeforeEdit = false;
+	// Jev's tools, kept so the look phase can give them back after the plan.
+	let toolsBeforeLook: vscode.LanguageModelChatTool[] = [];
+	let lookActive = false;
 	if (!tools.length) {
 		printJevDebug(stream, describeSkippedToolSurface('no tools were enabled'));
 	} else {
@@ -214,6 +229,12 @@ export async function runChatAgentLoop(
 				ruledTools = [...withReviewReadTool(ruledTools, catalog)];
 			}
 			readBeforeEdit = keepRead && ruledTools.some(tool => tool.name === IntegrityToolName.ReadFile);
+			const looked = beginLookPhase(ruledTools, catalog);
+			if (looked.active) {
+				lookActive = true;
+				toolsBeforeLook = ruledTools;
+				ruledTools = [...looked.tools];
+			}
 			selectedTools = ruledTools.map(tool => ({ name: tool.name, description: tool.description }));
 			tools = ruledTools;
 			const keptByHost = scratchpadRequired
@@ -222,12 +243,27 @@ export async function runChatAgentLoop(
 				printJevDebug(stream, 'Jev tools\ndecision: host rule kept integrity_scratchpad');
 			}
 			stream.progress(`Using ${tools.map(tool => tool.name).join(', ')}…`);
+			if (lookActive) {
+				stream.progress('Looking through the workspace before editing…');
+			}
 		} else {
 			tools = [];
 			stream.progress('Answering without tools…');
 		}
 	}
-	const system = buildSystemPrompt(mode, agentRules, extraContext, selectedTools, scratchpadRequired, priorFiles, readBeforeEdit);
+	let lookState: LookPhaseState = emptyLookPhaseState(lookActive);
+	let readSinceWrite: ReadSinceWriteState = emptyReadSinceWriteState();
+	const system = buildSystemPrompt(
+		mode,
+		agentRules,
+		extraContext,
+		selectedTools,
+		scratchpadRequired,
+		priorFiles,
+		readBeforeEdit,
+		lookState.active,
+		lookState.plan,
+	);
 	const maxSteps = vscode.workspace.getConfiguration('integrity.ai').get<number>('agent.maxSteps', DEFAULT_MAX_STEPS);
 
 	const messages: vscode.LanguageModelChatMessage[] = [
@@ -252,7 +288,7 @@ export async function runChatAgentLoop(
 	function syncSelectedTools(): void {
 		selectedTools = tools.map(tool => ({ name: tool.name, description: tool.description }));
 		messages[0] = vscode.LanguageModelChatMessage.User(
-			`[System instructions]\n${buildSystemPrompt(mode, agentRules, extraContext, selectedTools, scratchpadRequired, priorFiles, readBeforeEdit)}`,
+			`[System instructions]\n${buildSystemPrompt(mode, agentRules, extraContext, selectedTools, scratchpadRequired, priorFiles, readBeforeEdit, lookState.active, lookState.plan)}`,
 		);
 	}
 
@@ -274,7 +310,8 @@ export async function runChatAgentLoop(
 		if (tools.some(tool => tool.name === name)) {
 			return true;
 		}
-		if (!EDIT_TOOLS.has(name)) {
+		// The look phase keeps edit tools off the turn until the plan is recorded.
+		if (lookState.active || !EDIT_TOOLS.has(name)) {
 			return false;
 		}
 		const found = toolCatalog.find(tool => tool.name === name);
@@ -286,15 +323,6 @@ export async function runChatAgentLoop(
 		return true;
 	}
 
-	const thinking = await collectThinkingTrace(model, request.prompt, stream, token);
-	if (thinking.cancelled) {
-		return {};
-	}
-	const thinkingNote = thinkingContextMessage(thinking.trace);
-	if (thinkingNote) {
-		messages.push(vscode.LanguageModelChatMessage.User(thinkingNote));
-	}
-
 	for (let step = 0; step < maxSteps; step++) {
 		if (token.isCancellationRequested) {
 			return {};
@@ -303,9 +331,10 @@ export async function runChatAgentLoop(
 		if (step > 0) {
 			stream.progress(`Continuing (step ${step + 1})…`);
 		}
-		// Prose written before the scratchpad runs, or before changed files are reviewed, is not the answer.
+		// Prose in the look phase, beside a tool call, or held for the scratchpad or a review is not the answer.
 		const scratchpadPending = scratchpadRequired && !scratchpadRan;
 		const reviewPending = canReviewEdits && editReviewPending(reviewState);
+		const holdProse = lookState.active || scratchpadPending || reviewPending;
 
 		let response: vscode.LanguageModelChatResponse;
 		try {
@@ -322,6 +351,7 @@ export async function runChatAgentLoop(
 		const assistantParts: Array<vscode.LanguageModelTextPart | vscode.LanguageModelToolCallPart> = [];
 		const toolCalls: vscode.LanguageModelToolCallPart[] = [];
 		let textOut = '';
+		let proseInThinking = holdProse;
 
 		try {
 			for await (const part of response.stream) {
@@ -331,10 +361,14 @@ export async function runChatAgentLoop(
 				if (part instanceof vscode.LanguageModelTextPart) {
 					assistantParts.push(part);
 					textOut += part.value;
-					if (!scratchpadPending && !reviewPending) {
-						stream.markdown(part.value);
+					if (proseInThinking) {
+						stream.thinkingProgress({ id: THINKING_PART_ID, text: part.value });
 					}
 				} else if (part instanceof vscode.LanguageModelToolCallPart) {
+					if (!proseInThinking && textOut) {
+						stream.thinkingProgress({ id: THINKING_PART_ID, text: textOut });
+					}
+					proseInThinking = true;
 					assistantParts.push(part);
 					toolCalls.push(part);
 				}
@@ -352,6 +386,10 @@ export async function runChatAgentLoop(
 			const printed = classifyPrintedToolCall(textOut);
 			const printedName = printed?.kind === 'parsed' ? printed.toolCall.name : printed?.name;
 			if (printed && printedName && adoptEditTool(printedName)) {
+				if (!proseInThinking && textOut) {
+					stream.thinkingProgress({ id: THINKING_PART_ID, text: textOut });
+					proseInThinking = true;
+				}
 				if (printed.kind === 'parsed') {
 					const call = new vscode.LanguageModelToolCallPart(
 						printed.toolCall.id,
@@ -381,8 +419,25 @@ export async function runChatAgentLoop(
 				messages.push(vscode.LanguageModelChatMessage.User(decision.message));
 				continue;
 			}
+			const look = holdReplyForLookPhase(lookState);
+			if (look.action === 'hold') {
+				stream.progress('Looking through the workspace before planning…');
+				messages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
+				messages.push(vscode.LanguageModelChatMessage.User(look.message));
+				continue;
+			}
+			if (look.action === 'plan') {
+				lookState = finishLookPhase(lookState, textOut);
+				tools = [...withReviewReadTool(toolsBeforeLook, toolCatalog)];
+				syncSelectedTools();
+				stream.progress('Editing from the plan…');
+				messages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
+				messages.push(vscode.LanguageModelChatMessage.User(look.message));
+				continue;
+			}
 			const review = holdReplyForEditReview(reviewState, canReviewEdits);
 			if (review.action === 'exit') {
+				stream.markdown(textOut);
 				return finishTurn();
 			}
 			reviewState = review.state;
@@ -402,80 +457,29 @@ export async function runChatAgentLoop(
 		}
 		messages.push(vscode.LanguageModelChatMessage.Assistant(assistantParts));
 
-		const resultParts = await settleToolCalls(
+		const settled = await settleToolCalls(
 			toolCalls,
 			selectedTools.map(tool => tool.name),
 			request,
 			stream,
 			token,
+			readSinceWrite,
+			canReviewEdits,
 			(name, input, text) => {
 				reviewState = noteToolResult(reviewState, name, input, text);
 				writtenFiles = noteSessionWrite(writtenFiles, name, text);
+				lookState = noteLookObservation(lookState, name, text);
 			},
 		);
-		if (!resultParts) {
+		if (!settled) {
 			return {};
 		}
-		messages.push(vscode.LanguageModelChatMessage.User(resultParts));
+		readSinceWrite = settled.readSinceWrite;
+		messages.push(vscode.LanguageModelChatMessage.User(settled.parts));
 	}
 
 	stream.markdown(`\n\n_Agent reached max steps (${maxSteps})._`);
 	return finishTurn();
-}
-
-interface ThinkingTrace {
-	/** True when the user cancelled during the thinking call. The turn should stop. */
-	cancelled: boolean;
-	/** Model text. Empty when thinking failed or produced nothing, so the task still runs. */
-	trace: string;
-}
-
-/**
- * Ask the model four questions about the request before tools are available.
- * Deltas go to the Thinking box and are not the visible reply.
- * A model or stream error returns an empty trace so the task still runs.
- */
-async function collectThinkingTrace(
-	model: vscode.LanguageModelChat,
-	prompt: string,
-	stream: vscode.ChatResponseStream,
-	token: vscode.CancellationToken,
-): Promise<ThinkingTrace> {
-	if (token.isCancellationRequested) {
-		return { cancelled: true, trace: '' };
-	}
-
-	let response: vscode.LanguageModelChatResponse;
-	try {
-		response = await model.sendRequest([
-			vscode.LanguageModelChatMessage.User(`[System instructions]\n${THINKING_SYSTEM_PROMPT}`),
-			vscode.LanguageModelChatMessage.User(buildThinkingRequest(prompt)),
-		], {}, token);
-	} catch (err) {
-		if (isAbortError(err) || token.isCancellationRequested) {
-			return { cancelled: true, trace: '' };
-		}
-		return { cancelled: false, trace: '' };
-	}
-
-	let trace = '';
-	try {
-		for await (const part of response.stream) {
-			if (token.isCancellationRequested) {
-				return { cancelled: true, trace: '' };
-			}
-			if (part instanceof vscode.LanguageModelTextPart) {
-				trace += part.value;
-				stream.thinkingProgress({ id: THINKING_PART_ID, text: part.value });
-			}
-		}
-	} catch (err) {
-		if (isAbortError(err) || token.isCancellationRequested) {
-			return { cancelled: true, trace: '' };
-		}
-		return { cancelled: false, trace: '' };
-	}
-	return { cancelled: false, trace };
 }
 
 /**
@@ -542,6 +546,8 @@ async function rankedPrefetch(
 /**
  * Run read-only tools immediately. Mutating tools wait for the user when that
  * tool kind's approval setting is on. Jev does not take part in this decision.
+ * A patch or unique replace is rejected when that file has not been read since its last write
+ * and this turn can still offer {@link IntegrityToolName.ReadFile}.
  * @param onResult Called for each settled call, including rejections, so the turn can track writes.
  * @returns undefined when the turn was cancelled.
  */
@@ -551,31 +557,42 @@ async function settleToolCalls(
 	request: vscode.ChatRequest,
 	stream: vscode.ChatResponseStream,
 	token: vscode.CancellationToken,
+	readSinceWrite: ReadSinceWriteState,
+	enforceReadBeforeEdit: boolean,
 	onResult?: (name: string, input: unknown, text: string) => void,
-): Promise<vscode.LanguageModelToolResultPart[] | undefined> {
+): Promise<{ parts: vscode.LanguageModelToolResultPart[]; readSinceWrite: ReadSinceWriteState } | undefined> {
 	const slots: Array<{ call: vscode.LanguageModelToolCallPart; text: string }> = [];
 	const { requireEditApproval, requireTerminalApproval } = readJevRuntime();
+
+	const settle = (call: vscode.LanguageModelToolCallPart, text: string): void => {
+		slots.push({ call, text });
+		readSinceWrite = noteReadSinceWrite(readSinceWrite, call.name ?? '', call.input, text);
+	};
 
 	for (const call of toolCalls) {
 		if (token.isCancellationRequested) {
 			return undefined;
 		}
 		if (!call.name?.trim()) {
-			slots.push({
-				call,
-				text: 'Tool error: empty tool name.',
-			});
+			settle(call, 'Tool error: empty tool name.');
 			continue;
 		}
 		const unselected = rejectionForUnselectedTool(call.name, selectedTools);
 		if (unselected) {
-			slots.push({ call, text: unselected });
+			settle(call, unselected);
 			continue;
 		}
 		const rejected = rejectionForMisroutedToolCall(call.name, call.input);
 		if (rejected) {
-			slots.push({ call, text: rejected });
+			settle(call, rejected);
 			continue;
+		}
+		if (enforceReadBeforeEdit) {
+			const unread = rejectionForUnreadEdit(call.name, call.input, readSinceWrite.paths);
+			if (unread) {
+				settle(call, unread);
+				continue;
+			}
 		}
 		if (isMutatingTool(call.name) && mutatingToolNeedsConfirmation(call.name, requireEditApproval, requireTerminalApproval)) {
 			const approved = await confirmMutatingTool(approvalPrompt(call.name, call.input));
@@ -583,22 +600,25 @@ async function settleToolCalls(
 				return undefined;
 			}
 			if (!approved) {
-				slots.push({ call, text: `Tool error: ${call.name} cancelled by user.` });
+				settle(call, `Tool error: ${call.name} cancelled by user.`);
 				continue;
 			}
 		}
 		stream.progress(`Running \`${call.name}\`…`);
-		slots.push({ call, text: await invokeNamedTool(call, request, token) });
+		settle(call, await invokeNamedTool(call, request, token));
 	}
 
 	for (const slot of slots) {
 		onResult?.(slot.call.name, slot.call.input, slot.text);
 	}
 
-	return slots.map(slot => new vscode.LanguageModelToolResultPart(
-		slot.call.callId,
-		[new vscode.LanguageModelTextPart(slot.text)],
-	));
+	return {
+		parts: slots.map(slot => new vscode.LanguageModelToolResultPart(
+			slot.call.callId,
+			[new vscode.LanguageModelTextPart(slot.text)],
+		)),
+		readSinceWrite,
+	};
 }
 
 async function invokeNamedTool(

@@ -195,6 +195,19 @@ describe('applyPatchHunks', () => {
 		assert.deepEqual(result, { ok: true, updated: 'hello\nworld\n', created: false });
 	});
 
+	it('fails an empty oldText append when that text is already in the file', () => {
+		const result = applyPatchHunks('hello\nworld\n', [
+			{ oldText: 'hello', newText: 'HELLO' },
+			{ newText: 'world\n' },
+		]);
+		assert.equal(result.ok, false);
+		if (!result.ok) {
+			assert.match(result.error, /hunk 1/);
+			assert.match(result.error, /already in the file/);
+			assert.match(result.error, /unique oldText/);
+		}
+	});
+
 	it('inserts a newline when appending to content without a trailing newline', () => {
 		const result = applyPatchHunks('hello', [{ newText: 'world' }]);
 		assert.deepEqual(result, { ok: true, updated: 'hello\nworld', created: false });
