@@ -74,6 +74,130 @@ function toolCallFromObject(obj: Record<string, unknown>): ToolCall | null {
 	return { id, name: tool.trim(), arguments: args };
 }
 
+function readJson(text: string): { parsed: true; value: unknown } | { parsed: false } {
+	try {
+		return { parsed: true, value: JSON.parse(text) as unknown };
+	} catch {
+		return { parsed: false };
+	}
+}
+
+function asObject(value: unknown): Record<string, unknown> | null {
+	if (value && typeof value === 'object' && !Array.isArray(value)) {
+		return value as Record<string, unknown>;
+	}
+	return null;
+}
+
+/**
+ * Replace Python triple-quoted strings with JSON strings.
+ * Models wrap a patch body in `"""` ... `"""`, which JSON.parse rejects.
+ * The inner source, including quotes, is escaped by JSON.stringify.
+ */
+function replaceTripleQuotedStrings(input: string): string {
+	return input.replace(/"""([\s\S]*?)"""|'''([\s\S]*?)'''/g, (_match, doubleQuoted: string | undefined, singleQuoted: string | undefined) => {
+		return JSON.stringify(doubleQuoted ?? singleQuoted ?? '');
+	});
+}
+
+/**
+ * A quote ends a JSON string when the next non-space character is structural.
+ * An interior quote such as text="=" is escaped. A quote followed by a comma,
+ * as in text="1", padx, is left alone: closing there would apply a truncated patch.
+ */
+function isJsonStringCloser(input: string, index: number): boolean {
+	let i = index;
+	while (i < input.length && (input[i] === ' ' || input[i] === '\t' || input[i] === '\n' || input[i] === '\r')) {
+		i++;
+	}
+	if (i >= input.length) {
+		return true;
+	}
+	const next = input[i];
+	return next === ',' || next === '}' || next === ']' || next === ':';
+}
+
+/**
+ * Escape raw quotes and newlines inside JSON strings.
+ * Valid JSON never reaches here. The result is parsed only when it is still one object.
+ */
+function repairLooseJsonStrings(input: string): string {
+	let out = '';
+	let i = 0;
+	while (i < input.length) {
+		if (input[i] !== '"') {
+			out += input[i];
+			i++;
+			continue;
+		}
+		out += '"';
+		i++;
+		while (i < input.length) {
+			const ch = input[i];
+			if (ch === '\\') {
+				out += ch;
+				i++;
+				if (i < input.length) {
+					out += input[i];
+					i++;
+				}
+				continue;
+			}
+			if (ch === '"') {
+				if (isJsonStringCloser(input, i + 1)) {
+					out += '"';
+					i++;
+					break;
+				}
+				out += '\\"';
+				i++;
+				continue;
+			}
+			if (ch === '\n') {
+				out += '\\n';
+				i++;
+				continue;
+			}
+			if (ch === '\r') {
+				out += '\\r';
+				i++;
+				continue;
+			}
+			out += ch;
+			i++;
+		}
+	}
+	return out;
+}
+
+/**
+ * Repair a printed tool call enough for JSON.parse.
+ * Triple quotes are rewritten first so a patch body can contain quotes and newlines.
+ * Quote repair runs only when that text is still not JSON.
+ */
+function normalizePrintedJson(input: string): string {
+	const withTriples = replaceTripleQuotedStrings(input);
+	if (readJson(withTriples).parsed) {
+		return withTriples;
+	}
+	return repairLooseJsonStrings(withTriples);
+}
+
+/**
+ * Parse one object from printed JSON. A value that already parses is not repaired.
+ */
+function objectFromPrintedJson(candidate: string): Record<string, unknown> | null {
+	const direct = readJson(candidate);
+	if (direct.parsed) {
+		return asObject(direct.value);
+	}
+	const repaired = readJson(normalizePrintedJson(candidate));
+	if (!repaired.parsed) {
+		return null;
+	}
+	return asObject(repaired.value);
+}
+
 /**
  * Try to extract a single JSON object that looks like a tool call from model text.
  * Supports:
@@ -81,6 +205,7 @@ function toolCallFromObject(obj: Record<string, unknown>): ToolCall | null {
  * - fenced JSON blocks
  * - JSON embedded in prose
  * - OpenAI-ish shapes: {"name":"...","arguments":{...}}
+ * - Python triple-quoted strings and raw quotes inside a string value
  */
 export function parseJsonToolCall(response: string): ParsedJsonToolCall | null {
 	const trimmed = response.trim();
@@ -103,20 +228,17 @@ export function parseJsonToolCall(response: string): ParsedJsonToolCall | null {
 	}
 
 	for (const candidate of candidates) {
-		try {
-			const parsed = JSON.parse(candidate) as unknown;
-			if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-				const toolCall = toolCallFromObject(parsed as Record<string, unknown>);
-				if (toolCall) {
-					const remainingText = trimmed
-						.replace(fenceMatch?.[0] ?? '', '')
-						.replace(candidate, '')
-						.trim();
-					return { toolCall, remainingText };
-				}
-			}
-		} catch {
-			// try next candidate
+		const parsed = objectFromPrintedJson(candidate);
+		if (!parsed) {
+			continue;
+		}
+		const toolCall = toolCallFromObject(parsed);
+		if (toolCall) {
+			const remainingText = trimmed
+				.replace(fenceMatch?.[0] ?? '', '')
+				.replace(candidate, '')
+				.trim();
+			return { toolCall, remainingText };
 		}
 	}
 
@@ -146,8 +268,8 @@ export function applyJsonToolCallFallback(
 
 /**
  * A tool call the model wrote as text instead of invoking.
- * `parsed` is valid JSON. `unparsed` names a tool inside JSON that did not parse,
- * which happens when code inside the arguments contains raw quotes.
+ * `parsed` is JSON, including a printed patch whose quotes were repaired.
+ * `unparsed` names a tool inside JSON that still did not parse.
  */
 export type PrintedToolCall =
 	| { kind: 'parsed'; toolCall: ToolCall }
@@ -172,9 +294,42 @@ export function classifyPrintedToolCall(text: string): PrintedToolCall | undefin
 }
 
 /**
- * Correction sent back when the model printed a tool call that could not be run.
- * Names the tool so the next step invokes it instead of writing another JSON blob.
+ * What to do with a tool the model printed as JSON that still did not parse.
+ * One correction asks for a single valid object. The same tool printed unparsed
+ * again ends the turn: another nudge does not make a JSON-only model emit a native call.
+ */
+export type UnparsedPrintedToolDecision = {
+	action: 'correct' | 'stop';
+	corrected: ReadonlySet<string>;
+};
+
+/**
+ * Record the first unparsed print of `name`, or stop when it was already corrected.
+ */
+export function decideUnparsedPrintedTool(
+	alreadyCorrected: ReadonlySet<string>,
+	name: string,
+): UnparsedPrintedToolDecision {
+	if (alreadyCorrected.has(name)) {
+		return { action: 'stop', corrected: alreadyCorrected };
+	}
+	const corrected = new Set(alreadyCorrected);
+	corrected.add(name);
+	return { action: 'correct', corrected };
+}
+
+/**
+ * Correction sent once when a printed tool call could not be parsed.
+ * Asks for one JSON object with escaped quotes. A model that only prints JSON
+ * cannot satisfy a request to emit a native tool call.
  */
 export function printedToolCallMessage(name: string): string {
-	return `You printed a call to ${name} as text. That did not run. Call ${name} as a tool now. Do not print the call as JSON.`;
+	return `The call to ${name} was printed as JSON that did not parse, so it did not run. Print one JSON object for ${name}. Escape every double quote inside string values as \\". Do not wrap values in triple quotes.`;
+}
+
+/**
+ * Shown when a printed tool call still does not parse after that one correction.
+ */
+export function unparsedPrintedToolStopMessage(name: string): string {
+	return `**Could not run \`${name}\`.** The printed call is not valid JSON, so it was not applied.`;
 }
