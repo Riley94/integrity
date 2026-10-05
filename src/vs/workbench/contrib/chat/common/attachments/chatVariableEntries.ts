@@ -14,7 +14,11 @@ import { IOffsetRange } from '../../../../../editor/common/core/ranges/offsetRan
 import { isLocation, Location, SymbolKind } from '../../../../../editor/common/languages.js';
 import { localize } from '../../../../../nls.js';
 import { MarkerSeverity, IMarker } from '../../../../../platform/markers/common/markers.js';
-import type { IFeedbackPullRequest } from '../../../../../platform/agentHost/common/meta/agentFeedbackAnnotations.js';
+export interface IFeedbackPullRequest {
+	readonly owner: string;
+	readonly repo: string;
+	readonly number: number;
+}
 import { ISCMHistoryItem } from '../../../scm/common/history.js';
 import { IChatContentReference } from '../chatService/chatService.js';
 import { IChatRequestVariableValue } from './chatVariables.js';

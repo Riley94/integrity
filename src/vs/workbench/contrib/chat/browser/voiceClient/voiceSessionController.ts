@@ -30,9 +30,6 @@ import { IMicCaptureService, IPttDiagnostic, isMicrophonePermissionDeniedError }
 import { ITtsPlaybackService } from './ttsPlaybackService.js';
 import { IVoiceModelSelectionResult, IVoiceToolDispatchService, VoiceToolDispatchService } from './voiceToolDispatchService.js';
 import { IVoicePlaybackService } from '../../common/voicePlaybackService.js';
-import { IAgentSessionsService } from '../agentSessions/agentSessionsService.js';
-import { AgentSessionStatus } from '../agentSessions/agentSessionsModel.js';
-import { toAgentHostBackendSessionUri } from '../agentSessions/agentHost/agentHostSessionUri.js';
 import { ChatSendResult, IChatConfirmation, IChatElicitationRequest, IChatPlanReview, IChatQuestionCarousel, IChatService, IChatToolInvocation, ToolConfirmKind, IChatModelReference } from '../../common/chatService/chatService.js';
 import { getDisplayedQuestionText, getOptionsWithDefaultsFirst } from '../../common/chatService/chatQuestionCarouselHelpers.js';
 import { formatQuestionPrompt } from '../../common/voiceClient/voicePendingNarration.js';
@@ -46,7 +43,6 @@ import { IConfigurationService } from '../../../../../platform/configuration/com
 import { AccessibilitySignal, IAccessibilitySignalService } from '../../../../../platform/accessibilitySignal/browser/accessibilitySignalService.js';
 import { IAccessibilityService } from '../../../../../platform/accessibility/common/accessibility.js';
 import { INotificationService, IPromptChoice, Severity } from '../../../../../platform/notification/common/notification.js';
-import { SESSION_META_EHCLI_ADOPTABLE_KEY } from '../../../../../platform/agentHost/common/state/sessionState.js';
 import { IPromptsService } from '../../common/promptSyntax/service/promptsService.js';
 import { ChatEntitlement, IChatEntitlementService, isProUser } from '../../../../services/chat/common/chatEntitlementService.js';
 import {
@@ -320,7 +316,27 @@ export interface IVoiceSessionController {
 
 export const IVoiceSessionController = createDecorator<IVoiceSessionController>('voiceSessionController');
 
+const enum AgentSessionStatus {
+	InProgress = 1,
+	NeedsInput = 2,
+	Completed = 3,
+}
+
+function toAgentHostBackendSessionUri(_resource: URI): URI | undefined {
+	return undefined;
+}
+
+const SESSION_META_EHCLI_ADOPTABLE_KEY = 'ehcliAdoptable';
+
+
 export class VoiceSessionController extends Disposable implements IVoiceSessionController {
+	private readonly agentSessionsService = {
+		model: {
+			sessions: [] as any[],
+			getSession: (_resource: URI) => undefined as any,
+			onDidChangeSessions: (_listener: () => void) => ({ dispose() { } }),
+		},
+	};
 
 	declare readonly _serviceBrand: undefined;
 
@@ -821,7 +837,6 @@ export class VoiceSessionController extends Disposable implements IVoiceSessionC
 		@ITtsPlaybackService private readonly ttsPlaybackService: ITtsPlaybackService,
 		@IVoiceToolDispatchService private readonly voiceToolDispatchService: IVoiceToolDispatchService,
 		@IVoicePlaybackService private readonly voicePlaybackService: IVoicePlaybackService,
-		@IAgentSessionsService private readonly agentSessionsService: IAgentSessionsService,
 		@IChatService private readonly chatService: IChatService,
 		@ICommandService private readonly commandService: ICommandService,
 		@IAuthenticationService private readonly authenticationService: IAuthenticationService,

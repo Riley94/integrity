@@ -11,10 +11,8 @@ import { IObservable } from '../../../../base/common/observable.js';
 import { ThemeIcon } from '../../../../base/common/themables.js';
 import { URI } from '../../../../base/common/uri.js';
 import { IPosition } from '../../../../editor/common/core/position.js';
-import { isRemoteAgentHostSessionType } from '../../../../platform/agentHost/common/agentHostSessionType.js';
 import { createDecorator, ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
-import { LOCAL_AGENT_HOST_SCHEME_PREFIX } from '../../../../platform/agentHost/common/agentHostConnectionsService.js';
 import { IChatAgentAttachmentCapabilities, IChatAgentRequest } from './participants/chatAgents.js';
 import { IChatEditingSession } from './editing/chatEditingService.js';
 import { IChatRequestModeInstructions, IChatRequestVariableData, ISerializableChatModelInputState } from './model/chatModel.js';
@@ -22,6 +20,22 @@ import { IChatRequestOrigin } from './chatRequestOrigin.js';
 import { IChatProgress, IChatResponseErrorDetails, IChatSessionTiming } from './chatService/chatService.js';
 import { ChatAgentLocation } from './constants.js';
 import { Target } from './promptSyntax/promptTypes.js';
+
+const LOCAL_AGENT_HOST_SCHEME_PREFIX = 'agent-host-';
+const REMOTE_AGENT_HOST_SESSION_TYPE_PREFIX = 'remote-';
+
+export function isRemoteAgentHostSessionType(sessionType: string): boolean {
+	return sessionType.startsWith(REMOTE_AGENT_HOST_SESSION_TYPE_PREFIX);
+}
+
+export function parseRemoteAgentHostHarness(sessionType: string): string | undefined {
+	if (!isRemoteAgentHostSessionType(sessionType)) {
+		return undefined;
+	}
+	const lastDash = sessionType.lastIndexOf('-');
+	const harness = sessionType.slice(lastDash + 1);
+	return harness || undefined;
+}
 
 export const enum ChatSessionsExtensions {
 	AsyncActivation = 'workbench.contrib.chatSessions.asyncActivation'

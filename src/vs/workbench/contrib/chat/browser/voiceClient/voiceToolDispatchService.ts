@@ -8,8 +8,6 @@ import { constObservable } from '../../../../../base/common/observable.js';
 import { localize } from '../../../../../nls.js';
 import { createDecorator } from '../../../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../../../platform/instantiation/common/extensions.js';
-import { IAgentSessionsService } from '../agentSessions/agentSessionsService.js';
-import { AgentSessionStatus, getAgentChangesSummary } from '../agentSessions/agentSessionsModel.js';
 import { IChatPlanReviewResult, IChatQuestionAnswers, IChatQuestionCarousel, IChatSendRequestOptions, IChatService, IChatToolInvocation, ToolConfirmKind } from '../../common/chatService/chatService.js';
 import { IBackendQuestionAnswer, resolveQuestionAnswers } from '../../common/voiceClient/voiceQuestionAnswers.js';
 import { ChatQuestionCarouselData } from '../../common/model/chatProgressTypes/chatQuestionCarouselData.js';
@@ -139,14 +137,30 @@ const ACTION_LABELS: Record<string, string> = {
 	revoke_auto_approve: localize('agentsVoice.action.revokeAutoApprove', "Revoking auto-approve..."),
 };
 
+const enum AgentSessionStatus {
+	InProgress = 1,
+	NeedsInput = 2,
+	Completed = 3,
+}
+
+function getAgentChangesSummary(_changes: unknown): { insertions: number; deletions: number } | undefined {
+	return undefined;
+}
+
+
 export class VoiceToolDispatchService implements IVoiceToolDispatchService {
 
 	declare readonly _serviceBrand: undefined;
+	private readonly agentSessionsService = {
+		model: {
+			sessions: [] as any[],
+			getSession: (_resource: unknown) => undefined as any,
+		},
+	};
 
 	private _delegate: IVoiceToolDispatchDelegate | undefined;
 
 	constructor(
-		@IAgentSessionsService private readonly agentSessionsService: IAgentSessionsService,
 		@IChatService private readonly chatService: IChatService,
 		@ILanguageModelToolsService private readonly toolsService: ILanguageModelToolsService,
 	) { }

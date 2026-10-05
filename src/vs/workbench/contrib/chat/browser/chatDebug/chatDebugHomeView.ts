@@ -19,7 +19,6 @@ import { IChatService } from '../../common/chatService/chatService.js';
 import { AgentHostAgentDebugLogEnabledSettingId, AGENT_DEBUG_LOG_FILE_LOGGING_ENABLED_SETTING } from '../../common/promptSyntax/promptTypes.js';
 import { getChatSessionType, isUntitledChatSession, LocalChatSessionUri } from '../../common/model/chatUri.js';
 import { IChatWidgetService } from '../chat.js';
-import { IAgentSessionsService } from '../agentSessions/agentSessionsService.js';
 import { IPreferencesService } from '../../../../services/preferences/common/preferences.js';
 
 const $ = DOM.$;
@@ -49,7 +48,6 @@ export class ChatDebugHomeView extends Disposable {
 		@IChatService private readonly chatService: IChatService,
 		@IChatDebugService private readonly chatDebugService: IChatDebugService,
 		@IChatWidgetService private readonly chatWidgetService: IChatWidgetService,
-		@IAgentSessionsService private readonly agentSessionsService: IAgentSessionsService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@IPreferencesService private readonly preferencesService: IPreferencesService,
 	) {
@@ -173,8 +171,7 @@ export class ChatDebugHomeView extends Disposable {
 
 			for (const sessionResource of visibleSessions) {
 				// Resolve title: agent sessions model (same as sidebar) → chat service → historical from JSONL → fallback
-				const agentSession = this.agentSessionsService.model.getSession(sessionResource);
-				const rawTitle = agentSession?.label ?? this.chatService.getSessionTitle(sessionResource);
+				const rawTitle = this.chatService.getSessionTitle(sessionResource);
 				const importedTitle = this.chatDebugService.getImportedSessionTitle(sessionResource);
 				const historicalTitle = this.chatDebugService.getHistoricalSessionTitle(sessionResource);
 				let sessionTitle: string;

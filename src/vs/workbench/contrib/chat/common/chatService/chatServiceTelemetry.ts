@@ -14,8 +14,7 @@ import { isImageVariableEntry } from '../attachments/chatVariableEntries.js';
 import { ChatAgentLocation, ChatModeKind, ChatPermissionLevel } from '../constants.js';
 import { ILanguageModelsService } from '../languageModels.js';
 import { chatSessionResourceToId, getChatSessionType } from '../model/chatUri.js';
-import { isAgentHostSessionResource } from '../chatSessionsService.js';
-import { isRemoteAgentHostSessionType, parseRemoteAgentHostHarness } from '../../../../../platform/agentHost/common/agentHostSessionType.js';
+import { isAgentHostSessionResource, isRemoteAgentHostSessionType, parseRemoteAgentHostHarness } from '../chatSessionsService.js';
 
 type ChatSessionModeEvent = {
 	isAgentHostSession: boolean;

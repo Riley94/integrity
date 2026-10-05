@@ -38,8 +38,77 @@ import { IWorkbenchEnvironmentService } from '../../../../services/environment/c
 import { ExtensionState, IExtension, IExtensionsWorkbenchService } from '../../../extensions/common/extensions.js';
 import { GalleryItemInstallState, GalleryItemRenderer, IGalleryItemProvider } from './galleryItemRenderer.js';
 import { ILanguageModelToolsService, IToolData, IToolSet, ToolDataSource } from '../../common/tools/languageModelToolsService.js';
-import { countEnabledCustomizationTools, getToolSetTriState, IAgentHostToolSetEnablementService, isToolEnabledInSet, IToolEnablementState } from '../agentSessions/agentHost/agentHostToolSetEnablementService.js';
 import './media/aiCustomizationManagement.css';
+
+interface IToolEnablementState {
+	readonly toolSets: ReadonlyMap<string, boolean>;
+	readonly tools: ReadonlyMap<string, boolean>;
+}
+
+type TriState = boolean | 'mixed';
+
+function isToolEnabledInSet(state: IToolEnablementState, toolSetId: string, toolId: string): boolean {
+	return state.tools.get(toolId) ?? state.toolSets.get(toolSetId) ?? true;
+}
+
+function getToolSetTriState(state: IToolEnablementState, toolSetId: string, toolIds: readonly string[]): TriState {
+	let anyOn = false;
+	let anyOff = false;
+	for (const toolId of toolIds) {
+		if (isToolEnabledInSet(state, toolSetId, toolId)) {
+			anyOn = true;
+		} else {
+			anyOff = true;
+		}
+		if (anyOn && anyOff) {
+			return 'mixed';
+		}
+	}
+	return anyOn;
+}
+
+interface ICountableToolSet {
+	readonly id: string;
+	readonly deprecated?: boolean;
+	getTools(reader?: IReader): Iterable<{ readonly id: string }>;
+}
+
+function countEnabledCustomizationTools(toolSets: Iterable<ICountableToolSet>, state: IToolEnablementState, reader?: IReader): number {
+	const enabled = new Set<string>();
+	for (const ts of toolSets) {
+		if (ts.deprecated) {
+			continue;
+		}
+		for (const tool of ts.getTools(reader)) {
+			if (isToolEnabledInSet(state, ts.id, tool.id)) {
+				enabled.add(tool.id);
+			}
+		}
+	}
+	return enabled.size;
+}
+
+class LocalToolEnablement {
+	private readonly _state = observableValue<IToolEnablementState>('toolsEnablement', { toolSets: new Map(), tools: new Map() });
+	observe(_sessionType: string): IObservable<IToolEnablementState> { return this._state; }
+	getState(_sessionType: string): IToolEnablementState { return this._state.get(); }
+	setToolSetEnabled(_sessionType: string, toolSetId: string, toolIds: readonly string[], enabled: boolean): void {
+		const current = this._state.get();
+		const toolSets = new Map(current.toolSets);
+		const tools = new Map(current.tools);
+		toolSets.set(toolSetId, enabled);
+		for (const id of toolIds) {
+			tools.delete(id);
+		}
+		this._state.set({ toolSets, tools }, undefined);
+	}
+	setToolEnabled(_sessionType: string, _toolSetId: string, toolId: string, enabled: boolean): void {
+		const current = this._state.get();
+		const tools = new Map(current.tools);
+		tools.set(toolId, enabled);
+		this._state.set({ toolSets: current.toolSets, tools }, undefined);
+	}
+}
 
 const $ = DOM.$;
 
@@ -170,11 +239,11 @@ export class ToolsListWidget extends Disposable {
 
 	/** Read-only tool sets injected for the current session type (e.g. the Copilot CLI built-ins). */
 	private readonly _staticReadOnlySets: readonly IToolSet[];
+	private readonly _enablementService = new LocalToolEnablement();
 
 	constructor(
 		private readonly _sessionType: string,
 		@ILanguageModelToolsService private readonly _toolsService: ILanguageModelToolsService,
-		@IAgentHostToolSetEnablementService private readonly _enablementService: IAgentHostToolSetEnablementService,
 		@IContextViewService private readonly _contextViewService: IContextViewService,
 		@IContextMenuService private readonly _contextMenuService: IContextMenuService,
 		@IDialogService private readonly _dialogService: IDialogService,

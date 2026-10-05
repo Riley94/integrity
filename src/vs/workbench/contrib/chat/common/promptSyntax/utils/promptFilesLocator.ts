@@ -27,7 +27,6 @@ import { ILogService } from '../../../../../../platform/log/common/log.js';
 import { IPathService } from '../../../../../services/path/common/pathService.js';
 import { equalsIgnoreCase } from '../../../../../../base/common/strings.js';
 import { IWorkspaceTrustManagementService } from '../../../../../../platform/workspace/common/workspaceTrust.js';
-import { AGENT_HOST_SCHEME } from '../../../../../../platform/agentHost/common/agentHostUri.js';
 
 /**
  * Maximum recursion depth when traversing subdirectories for instruction files.
@@ -71,12 +70,7 @@ export class PromptFilesLocator {
 	}
 
 	protected getWorkspaceFolders(): readonly IWorkspaceFolder[] {
-		// Agent host workspace folders surface customizations through AHP
-		// (session state + findAgentSkills), not via filesystem scanning.
-		// Including them here would issue a `resourceList` JSON-RPC per
-		// configured location for every nonexistent `.github` / `.claude`
-		// folder on the remote.
-		return this.workspaceService.getWorkspace().folders.filter(f => f.uri.scheme !== AGENT_HOST_SCHEME);
+		return this.workspaceService.getWorkspace().folders;
 	}
 
 	protected getWorkspaceFolder(resource: URI): IWorkspaceFolder | undefined {
@@ -105,7 +99,7 @@ export class PromptFilesLocator {
 
 	public async getWorkspaceFolderRoots(includeParents: boolean, logger?: Logger, root?: URI): Promise<URI[]> {
 		const workspaceFolders = root
-			? root.scheme === AGENT_HOST_SCHEME ? [] : [{ uri: root }]
+			? [{ uri: root }]
 			: this.getWorkspaceFolders();
 		if (includeParents) {
 			const roots = new ResourceSet();

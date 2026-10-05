@@ -49,8 +49,6 @@ import { IBaseActionViewItemOptions } from '../../../base/browser/ui/actionbar/a
 import { ICommandService } from '../../../platform/commands/common/commands.js';
 import { IDefaultAccountService } from '../../../platform/defaultAccount/common/defaultAccount.js';
 import { WORKBENCH_MENU_MOTION_CLASS, workbenchMenuCloseAnimation } from '../actions/menuMotion.js';
-import { createCodexAccountMenuActions, ICodexAccountService, shouldShowCodexAccount } from '../../services/agentHost/browser/codexAccountService.js';
-
 export class GlobalCompositeBar extends Disposable {
 
 	private static readonly ACCOUNTS_ACTION_INDEX = 0;
@@ -293,7 +291,6 @@ export class AccountsActivityActionViewItem extends AbstractGlobalActivityAction
 		@IActivityService activityService: IActivityService,
 		@IInstantiationService instantiationService: IInstantiationService,
 		@ICommandService private readonly commandService: ICommandService,
-		@ICodexAccountService private readonly codexAccountService: ICodexAccountService,
 		@IDefaultAccountService private readonly defaultAccountService: IDefaultAccountService,
 	) {
 		const action = instantiationService.createInstance(CompositeBarAction, {
@@ -569,16 +566,6 @@ export class AccountsActivityActionViewItem extends AbstractGlobalActivityAction
 			}
 		}
 
-		const codexAccountActions = createCodexAccountMenuActions(this.codexAccountService, shouldShowCodexAccount(this.configurationService, false));
-		if (codexAccountActions.length) {
-			if (menus.length) {
-				menus.push(new Separator());
-			}
-			for (const action of codexAccountActions) {
-				menus.push(action instanceof Action ? disposables.add(action) : action);
-			}
-		}
-
 		if (menus.length && otherCommands.length) {
 			menus.push(new Separator());
 		}
@@ -777,7 +764,6 @@ export class SimpleAccountActivityActionViewItem extends AccountsActivityActionV
 		@IActivityService activityService: IActivityService,
 		@IInstantiationService instantiationService: IInstantiationService,
 		@ICommandService commandService: ICommandService,
-		@ICodexAccountService codexAccountService: ICodexAccountService,
 		@IDefaultAccountService defaultAccountService: IDefaultAccountService,
 	) {
 		super(() => simpleActivityContextMenuActions(storageService, true),
@@ -789,7 +775,7 @@ export class SimpleAccountActivityActionViewItem extends AccountsActivityActionV
 				}),
 				hoverOptions,
 				compact: true,
-			}, () => undefined, actions => actions, themeService, lifecycleService, hoverService, contextMenuService, menuService, contextKeyService, authenticationService, environmentService, productService, configurationService, keybindingService, secretStorageService, logService, activityService, instantiationService, commandService, codexAccountService, defaultAccountService);
+			}, () => undefined, actions => actions, themeService, lifecycleService, hoverService, contextMenuService, menuService, contextKeyService, authenticationService, environmentService, productService, configurationService, keybindingService, secretStorageService, logService, activityService, instantiationService, commandService, defaultAccountService);
 	}
 }
 

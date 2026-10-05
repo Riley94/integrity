@@ -53,14 +53,6 @@ import { IChatDebugService } from '../../../../contrib/chat/common/chatDebugServ
 import { IPromptsService } from '../../../../contrib/chat/common/promptSyntax/service/promptsService.js';
 import { IChatWidgetHistoryService } from '../../../../contrib/chat/common/widget/chatWidgetHistoryService.js';
 import { IChatLayoutService } from '../../../../contrib/chat/common/widget/chatLayoutService.js';
-import { IAgentSessionsService } from '../../../../contrib/chat/browser/agentSessions/agentSessionsService.js';
-import { IAgentHostService } from '../../../../../platform/agentHost/common/agentService.js';
-import { IAgentSubscription } from '../../../../../platform/agentHost/common/state/agentSubscription.js';
-import { RootState } from '../../../../../platform/agentHost/common/state/sessionState.js';
-import { IAgentHostUntitledProvisionalSessionService } from '../../../../contrib/chat/browser/agentSessions/agentHost/agentHostUntitledProvisionalSessionService.js';
-import { IAgentHostSessionWorkingDirectoryResolver } from '../../../../contrib/chat/browser/agentSessions/agentHost/agentHostSessionWorkingDirectoryResolver.js';
-import { IAgentHostNewSessionFolderService } from '../../../../contrib/chat/browser/agentSessions/agentHost/agentHostNewSessionFolderService.js';
-import { IAgentHostCustomizationService } from '../../../../contrib/chat/browser/agentSessions/agentHost/agentHostCustomizationService.js';
 import { IWorkspaceContextService, IWorkspace } from '../../../../../platform/workspace/common/workspace.js';
 import { IViewDescriptorService } from '../../../../common/views.js';
 import { IListService, ListService } from '../../../../../platform/list/browser/listService.js';
@@ -278,36 +270,6 @@ function renderInlineChatZoneWidget({ container, disposableStore, theme }: Compo
 				override getTools() { return []; }
 				override observeTools() { return observableValue('tools', []); }
 				override getToolSetsForModel() { return []; }
-			}());
-			reg.defineInstance(IAgentSessionsService, new class extends mock<IAgentSessionsService>() {
-				override readonly model = new class extends mock<IAgentSessionsService['model']>() {
-					override readonly onDidChangeSessions = Event.None;
-				}();
-			}());
-			reg.defineInstance(IAgentHostService, new class extends mock<IAgentHostService>() {
-				override readonly onAgentHostStart = Event.None;
-				override readonly rootState: IAgentSubscription<RootState> = {
-					value: undefined,
-					verifiedValue: undefined,
-					onDidChange: Event.None,
-					onWillApplyAction: Event.None,
-					onDidApplyAction: Event.None,
-				};
-			}());
-			reg.defineInstance(IAgentHostUntitledProvisionalSessionService, new class extends mock<IAgentHostUntitledProvisionalSessionService>() {
-				override readonly onDidChange = Event.None;
-				override get() { return undefined; }
-			}());
-			reg.defineInstance(IAgentHostSessionWorkingDirectoryResolver, new class extends mock<IAgentHostSessionWorkingDirectoryResolver>() {
-				override resolve() { return undefined; }
-			}());
-			reg.defineInstance(IAgentHostNewSessionFolderService, new class extends mock<IAgentHostNewSessionFolderService>() {
-				override readonly onDidChangeFolder = Event.None;
-				override getFolder() { return undefined; }
-			}());
-			reg.defineInstance(IAgentHostCustomizationService, new class extends mock<IAgentHostCustomizationService>() {
-				override readonly onDidChangeCustomizations = Event.None;
-				override getFolderPickerDecision() { return undefined; }
 			}());
 			reg.defineInstance(IChatContextService, new class extends mock<IChatContextService>() { }());
 			reg.defineInstance(IChatAttachmentWidgetRegistry, new class extends mock<IChatAttachmentWidgetRegistry>() { }());

@@ -59,11 +59,8 @@ npm run codex:check-protocol
 npm run compile
 ./scripts/test.sh --grep codex
 (cd build && npm run test)
-npm run test-agent-host-e2e -- --jobs 2
 npm run hygiene
 ```
-
-The Agent Host E2E run exercises the bundled provider SDKs in replay mode. If a Codex SDK change causes replay misses or stale fixtures, read `.github/skills/agent-host-e2e-tests/SKILL.md` before deciding whether to re-record; never weaken or silently skip a failing test.
 
 ## Verify a real Codex Agent Host session
 

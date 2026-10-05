@@ -11,14 +11,6 @@ import './api/browser/extensionHost.contribution.js';
 import './browser/workbench.contribution.js';
 import './browser/workbench.zenMode.contribution.js';
 
-// Agent-sessions color tokens — side-effect import so they register in the
-// global color registry and appear in the color-theme JSON schema.
-import '../sessions/common/theme.js';
-
-// Agent-sessions size tokens (font ramp) — side-effect import so they register
-// in the global size registry and appear in the workbench-sizes JSON schema.
-import '../sessions/common/sizes.js';
-
 //#endregion
 
 
@@ -102,6 +94,7 @@ import './services/extensionRecommendations/common/extensionIgnoredRecommendatio
 import './services/extensionRecommendations/common/workspaceExtensionsConfig.js';
 import './services/extensionManagement/common/extensionFeaturesManagemetService.js';
 import './services/notification/common/notificationService.js';
+import '../platform/userDataSync/common/nullUserDataSync.js';
 import './services/userDataSync/common/userDataSyncUtil.js';
 import './services/userDataProfile/browser/userDataProfileImportExportService.js';
 import './services/userDataProfile/browser/userDataProfileManagement.js';
@@ -116,7 +109,7 @@ import './services/filesConfiguration/common/filesConfigurationService.js';
 import './services/views/browser/viewDescriptorService.js';
 import './services/views/browser/viewsService.js';
 import './services/quickinput/browser/quickInputService.js';
-import './services/userDataSync/browser/userDataSyncWorkbenchService.js';
+import './services/userDataSync/browser/nullUserDataSyncWorkbenchService.js';
 import './services/authentication/browser/authenticationService.js';
 import './services/authentication/browser/authenticationExtensionsService.js';
 import './services/authentication/browser/authenticationUsageService.js';
@@ -145,8 +138,6 @@ import './services/dataChannel/browser/dataChannelService.js';
 import './services/github/browser/githubService.js';
 import './services/inlineCompletions/common/inlineCompletionsUnification.js';
 import './services/chat/common/chatEntitlementService.js';
-import './services/agentHost/common/agentHostResourceService.js';
-import '../platform/agentHost/browser/agentHostConnectionsService.js';
 import './services/log/common/defaultLogLevels.js';
 
 import { InstantiationType, registerSingleton } from '../platform/instantiation/common/extensions.js';
@@ -229,7 +220,6 @@ import './contrib/speech/browser/speech.contribution.js';
 // Chat
 import './contrib/chat/browser/chat.shared.contribution.js';
 import './contrib/chat/browser/chat.contribution.js';
-import './contrib/chat/browser/agentSessions/agentHost/agentHost.contribution.js';
 import './contrib/chat/browser/chat.view.contribution.js';
 import './contrib/inlineChat/browser/inlineChat.contribution.js';
 
@@ -391,7 +381,6 @@ import './contrib/surveys/browser/languageSurveys.contribution.js';
 
 // Welcome
 import './contrib/welcomeGettingStarted/browser/gettingStarted.contribution.js';
-import './contrib/welcomeAgentSessions/browser/agentSessionsWelcome.contribution.js';
 import './contrib/welcomeWalkthrough/browser/walkThrough.contribution.js';
 import './contrib/welcomeViews/common/viewsWelcome.contribution.js';
 import './contrib/welcomeViews/common/newFile.contribution.js';
@@ -420,9 +409,6 @@ import './contrib/languageStatus/browser/languageStatus.contribution.js';
 
 // Authentication
 import './contrib/authentication/browser/authentication.contribution.js';
-
-// User Data Sync
-import './contrib/userDataSync/browser/userDataSync.contribution.js';
 
 // User Data Profiles
 import './contrib/userDataProfile/browser/userDataProfile.contribution.js';

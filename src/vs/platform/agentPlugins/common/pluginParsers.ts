@@ -13,10 +13,77 @@ import { URI } from '../../../base/common/uri.js';
 import { IFileService } from '../../files/common/files.js';
 import { parseFrontMatter } from '../../../base/common/yaml.js';
 import { IMcpRemoteServerConfiguration, IMcpServerConfiguration, IMcpStdioServerConfiguration, McpServerType } from '../../mcp/common/mcpPlatformTypes.js';
-import { CustomizationType, McpServerStatus, type AgentCustomization, type HookCustomization, type McpServerCustomization, type RuleCustomization, type SkillCustomization } from '../../agentHost/common/state/protocol/state.js';
-import { DEFAULT_MCP_APP } from '../../agentHost/common/state/protocol/mcpAppDefaults.js';
-import { customizationId } from '../../agentHost/common/state/sessionState.js';
 import { readAgentPluginManifest } from './agentPluginParser.js';
+
+export const enum CustomizationType {
+	Agent = 'agent',
+	Skill = 'skill',
+	Rule = 'rule',
+	Hook = 'hook',
+	McpServer = 'mcpServer',
+}
+
+export const enum McpServerStatus {
+	Stopped = 'stopped',
+}
+
+interface AgentCustomization {
+	type: CustomizationType.Agent;
+	id: string;
+	uri: string;
+	name: string;
+	description?: string;
+	model?: string;
+	tools?: string[];
+	disableModelInvocation?: boolean;
+	disableUserInvocation?: boolean;
+}
+
+interface SkillCustomization {
+	type: CustomizationType.Skill;
+	id: string;
+	uri: string;
+	name: string;
+	description?: string;
+	disableModelInvocation?: boolean;
+	disableUserInvocation?: boolean;
+}
+
+interface RuleCustomization {
+	type: CustomizationType.Rule;
+	id: string;
+	uri: string;
+	name: string;
+	description?: string;
+}
+
+interface HookCustomization {
+	type: CustomizationType.Hook;
+	id: string;
+	uri: string;
+	name: string;
+}
+
+export interface McpServerCustomization {
+	type: CustomizationType.McpServer;
+	id: string;
+	uri: string;
+	name: string;
+	state: { kind: McpServerStatus };
+	mcpApp: typeof DEFAULT_MCP_APP;
+}
+
+export const DEFAULT_MCP_APP = {
+	capabilities: {
+		serverTools: { listChanged: true },
+		serverResources: {},
+		sampling: {},
+	},
+};
+
+export function customizationId(uri: string): string {
+	return uri;
+}
 
 // ---------------------------------------------------------------------------
 // Types

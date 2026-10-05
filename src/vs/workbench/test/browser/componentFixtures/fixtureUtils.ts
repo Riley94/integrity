@@ -100,17 +100,7 @@ import { TestContextService } from '../../common/workbenchTestServices.js';
 import { TestMenuService } from '../workbenchTestServices.js';
 import { IAccessibilitySignalService } from '../../../../platform/accessibilitySignal/browser/accessibilitySignalService.js';
 import { IResolvedTextEditorModel, ITextModelService } from '../../../../editor/common/services/resolverService.js';
-// eslint-disable-next-line local/code-import-patterns
-import { AGENT_FEEDBACK_NEW_SESSION_RESOURCE, IAgentFeedbackService } from '../../../../sessions/contrib/agentFeedback/browser/agentFeedbackService.js';
 import { IChatEditingService } from '../../../contrib/chat/common/editing/chatEditingService.js';
-// eslint-disable-next-line local/code-import-patterns
-import { ISessionsManagementService } from '../../../../sessions/services/sessions/common/sessionsManagement.js';
-// eslint-disable-next-line local/code-import-patterns
-import { ISessionsService } from '../../../../sessions/services/sessions/browser/sessionsService.js';
-// eslint-disable-next-line local/code-import-patterns
-import { ISessionChangesStatsCache, SessionChangesStatsCache } from '../../../../sessions/services/sessions/common/sessionChangesStatsCache.js';
-// eslint-disable-next-line local/code-import-patterns
-import { ICodeReviewService, PRReviewStateKind } from '../../../../sessions/contrib/codeReview/browser/codeReviewService.js';
 import { constObservable } from '../../../../base/common/observable.js';
 import { IPreferencesService } from '../../../services/preferences/common/preferences.js';
 
@@ -718,73 +708,11 @@ export function createEditorServices(disposables: DisposableStore, options?: Cre
 
 	define(ITextModelService, FixtureTextModelService);
 
-	defineInstance(IAgentFeedbackService, {
-		_serviceBrand: undefined,
-		onDidChangeFeedback: Event.None,
-		onDidChangeFeedbackVisibility: Event.None,
-		onDidChangeNavigation: Event.None,
-		onDidChangeFeedbackScope: Event.None,
-		activeFeedbackSessionResource: constObservable(AGENT_FEEDBACK_NEW_SESSION_RESOURCE),
-		onDidAddFeedback: Event.None,
-		onDidConvertFeedback: Event.None,
-		onDidAddReply: Event.None,
-		onDidSubmitFeedback: Event.None,
-		onDidRevealSessionComment: Event.None,
-		addFeedback: () => undefined!,
-		removeFeedback: () => { },
-		updateFeedback: () => { },
-		updateFeedbackSourcePullRequest: () => { },
-		acceptFeedback: () => { },
-		addReply: () => { },
-		getFeedback: () => [],
-		showFeedbackInEditor: () => { },
-		hideFeedbackInEditor: () => { },
-		getVisibleResolvedFeedbackIds: () => new Set(),
-		hasLoadedFeedback: () => true,
-		getSessionForFile: () => undefined,
-		getFeedbackSessionResource: () => undefined,
-		registerFeedbackResourceScope: () => toDisposable(() => { }),
-		getMostRecentSessionForResource: () => undefined,
-		revealFeedback: async () => { },
-		revealSessionComment: async () => { },
-		getNextFeedback: () => undefined,
-		getNextNavigableItem: () => undefined,
-		setNavigationAnchor: () => { },
-		getNavigationBearing: () => ({ activeIdx: -1, totalCount: 0 }),
-		clearFeedback: () => { },
-		markFeedbackSubmitted: () => { },
-		submitFeedback: async () => false,
-		addFeedbackAndSubmit: async () => { },
-		setFeedbackResolved: async () => { },
-	});
-
 	definePartialInstance(IChatEditingService, {
 		_serviceBrand: undefined,
 		editingSessionsObs: constObservable([]),
 		startOrContinueGlobalEditingSession: () => undefined!,
 		getEditingSession: () => undefined,
-	});
-
-	definePartialInstance(ISessionsManagementService, {
-		_serviceBrand: undefined,
-		getSession: () => undefined,
-		getSessions: () => [],
-	});
-
-	definePartialInstance(ISessionsService, {
-		_serviceBrand: undefined,
-		activeSession: constObservable(undefined),
-	});
-
-	// The real cache: it only reads and writes the (null) storage service, and
-	// the changes pill it feeds reads it directly.
-	define(ISessionChangesStatsCache, SessionChangesStatsCache);
-
-	definePartialInstance(ICodeReviewService, {
-		_serviceBrand: undefined,
-		getPRReviewState: () => constObservable({ kind: PRReviewStateKind.None }),
-		resolvePRReviewThread: async () => { },
-		markPRReviewCommentConverted: () => { },
 	});
 
 	definePartialInstance(IPreferencesService, {
@@ -874,10 +802,7 @@ export function registerWorkbenchServices(registration: ServiceRegistration): vo
 	registration.define(IActionViewItemService, NullActionViewItemService);
 
 	// No-op phone presenter so chat-input fixtures don't crash on
-	// `chatPhoneInputPresenter.enabled.get()`. The real impl is in
-	// `vs/sessions` and only attaches in the agents window — desktop
-	// fixtures see the no-op (`enabled === false`, sheet calls resolve
-	// immediately) which matches desktop runtime behavior.
+	// `chatPhoneInputPresenter.enabled.get()`.
 	registration.defineInstance(IChatPhoneInputPresenter, {
 		_serviceBrand: undefined,
 		enabled: constObservable(false),

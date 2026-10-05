@@ -42,8 +42,6 @@ import { IChatRequestVariableEntry, PromptFileVariableKind, toPromptFileVariable
 import { IViewsService } from '../../../../services/views/common/viewsService.js';
 import { ChatViewId } from '../chat.js';
 import { ChatViewPane } from '../widgetHosts/viewPane/chatViewPane.js';
-import { AgentSessionProviders, getAgentSessionProvider, getAgentSessionProviderName } from '../agentSessions/agentSessions.js';
-import { IAgentHostImportConversationStore, type IAgentHostImportConversation } from '../agentSessions/agentHost/agentHostImportConversationStore.js';
 import { BugIndicatingError, isCancellationError } from '../../../../../base/common/errors.js';
 import { IEditorGroupsService } from '../../../../services/editor/common/editorGroupsService.js';
 import { getChatSessionType, isUntitledChatSession, LocalChatSessionUri } from '../../common/model/chatUri.js';
@@ -56,8 +54,6 @@ import { ILanguageModelToolsService } from '../../common/tools/languageModelTool
 import { IChatModel } from '../../common/model/chatModel.js';
 import { ICustomizationHarnessService } from '../../common/customizationHarnessService.js';
 import { generateUuid } from '../../../../../base/common/uuid.js';
-import { AGENT_HOST_ENABLED_CONTEXT_KEY } from '../../../../../platform/agentHost/common/agentHostEnablementService.js';
-import { AgentHostCodexAgentEnabledSettingId, CodexPreferAgentHostEditorSettingId } from '../../../../../platform/agentHost/common/agentService.js';
 import { IsSessionsWindowContext } from '../../../../common/contextkeys.js';
 
 const extensionPoint = ExtensionsRegistry.registerExtensionPoint<IChatSessionsExtensionPoint[]>({
@@ -256,14 +252,7 @@ const extensionPoint = ExtensionsRegistry.registerExtensionPoint<IChatSessionsEx
 	}
 });
 
-const codexExtensionHostAvailableWhen = ContextKeyExpr.and(
-	IsSessionsWindowContext.negate(),
-	ContextKeyExpr.or(
-		AGENT_HOST_ENABLED_CONTEXT_KEY.negate(),
-		ContextKeyExpr.not(`config.${AgentHostCodexAgentEnabledSettingId}`),
-		ContextKeyExpr.not(`config.${CodexPreferAgentHostEditorSettingId}`),
-	),
-)!;
+const codexExtensionHostAvailableWhen = IsSessionsWindowContext.negate();
 
 export function applyCodexAgentHostPreference(contribution: IChatSessionsExtensionPoint): IChatSessionsExtensionPoint {
 	if (contribution.type !== SessionType.Codex) {
@@ -396,7 +385,7 @@ export class ChatSessionsService extends Disposable implements IChatSessionsServ
 			this._evaluateAvailability();
 		}));
 
-		const builtinSessionProviders = [AgentSessionProviders.Local];
+		const builtinSessionProviders = [SessionType.Local];
 		const contributedSessionProviders = observableFromEvent(
 			this.onDidChangeAvailability,
 			() => Array.from(this._contributions.keys()).filter(key => this._contributionDisposables.has(key)),
@@ -1729,7 +1718,7 @@ type NewChatSessionSendOptions = {
 	 * ("Continue in…" migration). Consumed once when the backend session is
 	 * created; see {@link IAgentHostImportConversationStore}.
 	 */
-	readonly importConversation?: IAgentHostImportConversation;
+	readonly importConversation?: { readonly turns: readonly unknown[] };
 };
 
 export type NewChatSessionOpenOptions = {
@@ -1754,7 +1743,6 @@ export async function openChatSession(accessor: ServicesAccessor, openOptions: N
 	const editorService = accessor.get(IEditorService);
 	const customizationHarnessService = accessor.get(ICustomizationHarnessService);
 	const toolsService = accessor.get(ILanguageModelToolsService);
-	const importConversationStore = accessor.get(IAgentHostImportConversationStore);
 	const progressService = accessor.get(IProgressService);
 
 	// Determine resource to open
@@ -1763,10 +1751,6 @@ export async function openChatSession(accessor: ServicesAccessor, openOptions: N
 	// Stash any imported ("Continue in…") conversation before the session is
 	// opened: opening can eagerly pre-create the backend session (via the chat
 	// input picker), which consumes this to seed the turns as editable history.
-	if (chatSendOptions?.importConversation && chatSendOptions.importConversation.turns.length > 0) {
-		importConversationStore.set(sessionResource, chatSendOptions.importConversation);
-	}
-
 	// Open chat session. For a sidebar "Continue in…" migration the transition
 	// spans multiple async phases (load → materializing send → untitled→real
 	// rebind), during which the chat widget is transiently empty. Hold the
@@ -1785,7 +1769,7 @@ export async function openChatSession(accessor: ServicesAccessor, openOptions: N
 					transitionProgress = new DeferredPromise<void>();
 					progressService.withProgress({ location: ChatViewId }, () => transitionProgress!.p);
 				}
-				if (openOptions.type === AgentSessionProviders.Local) {
+				if (openOptions.type === SessionType.Local) {
 					await view.startNewLocalSession();
 				} else {
 					await view.loadSession(sessionResource, 'explicitOverride');
@@ -1798,7 +1782,7 @@ export async function openChatSession(accessor: ServicesAccessor, openOptions: N
 					override: ChatEditorInput.EditorID,
 					pinned: true,
 					sessionTypeSelectionReason: 'explicitOverride',
-					...(openOptions.type === AgentSessionProviders.Local ? { explicitSessionType: localChatSessionType } : {}),
+					...(openOptions.type === SessionType.Local ? { explicitSessionType: localChatSessionType } : {}),
 					title: {
 						fallback: localize('chatEditorContributionName', "{0}", openOptions.displayName),
 					}
@@ -1930,7 +1914,7 @@ async function resolvePromptSlashCommand(prompt: string, sessionResource: URI, c
 }
 
 export function getResourceForNewChatSession(options: NewChatSessionOpenOptions): URI {
-	const isRemoteSession = options.type !== AgentSessionProviders.Local;
+	const isRemoteSession = options.type !== SessionType.Local;
 	if (isRemoteSession) {
 		return URI.from({
 			scheme: options.type,
@@ -1947,7 +1931,44 @@ export function getResourceForNewChatSession(options: NewChatSessionOpenOptions)
 }
 
 function isAgentSessionProviderType(type: string): boolean {
-	return Object.values(AgentSessionProviders).includes(type as AgentSessionProviders);
+	return (Object.values(SessionType) as readonly string[]).includes(type);
+}
+
+function getAgentSessionProvider(type: string): string | undefined {
+	switch (type) {
+		case SessionType.Local:
+		case SessionType.CopilotCLI:
+		case SessionType.CopilotCloud:
+		case SessionType.Codex:
+		case SessionType.AgentHostCopilot:
+		case SessionType.AgentHostClaude:
+		case SessionType.AgentHostCodex:
+			return type;
+		default:
+			return undefined;
+	}
+}
+
+function getAgentSessionProviderName(provider: string): string {
+	switch (provider) {
+		case SessionType.Local:
+			return localize('chat.session.providerLabel.local', "Local");
+		case SessionType.CopilotCLI:
+			return localize('chat.session.providerLabel.background', "Copilot CLI");
+		case SessionType.CopilotCloud:
+			return localize('chat.session.providerLabel.cloud', "Cloud");
+		case SessionType.AgentHostClaude:
+			return 'Claude';
+		case SessionType.Codex:
+		case SessionType.AgentHostCodex:
+			return 'Codex';
+		case SessionType.Growth:
+			return 'Growth';
+		case SessionType.AgentHostCopilot:
+			return localize('chat.session.providerLabel.agentHostCopilot', "Copilot");
+		default:
+			return provider;
+	}
 }
 
 export function getSessionStatusForModel(model: IChatModel): ChatSessionStatus | undefined {

@@ -7,9 +7,6 @@ import assert from 'assert';
 import { Event } from '../../../../../../base/common/event.js';
 import { URI } from '../../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../../base/test/common/utils.js';
-import { AgentSession } from '../../../../../../platform/agentHost/common/agentService.js';
-import { buildOpenSessionLinkForChatResource } from '../../../../../../platform/agentHost/common/openSessionLink.js';
-import { buildChatUri, buildDefaultChatUri } from '../../../../../../platform/agentHost/common/state/sessionState.js';
 import { ChatAttachmentWidgetRegistry, IChatAttachmentWidgetInstance } from '../../../browser/attachments/chatAttachmentWidgetRegistry.js';
 import { createChatReferenceVariableEntry, IChatRequestVariableEntry } from '../../../common/attachments/chatVariableEntries.js';
 
@@ -17,12 +14,7 @@ suite('ChatReferenceAttachment', () => {
 
 	ensureNoDisposablesAreLeakedInTestSuite();
 
-	// A chat-reference entry's `value` is the opaque **backend** chat URI
-	// (`ahp-chat://...`), identical to what `MessageChatAttachment.resource`
-	// carries on the wire.
-	const backendSession = AgentSession.uri('claude', 'abc123');
-	const backendDefaultChat = URI.parse(buildDefaultChatUri(backendSession));
-	const backendPeerChat = URI.parse(buildChatUri(backendSession, 'peer1'));
+	const backendDefaultChat = URI.parse('vscode-chat-session://local/chat-1');
 
 	function createFakeWidget(): IChatAttachmentWidgetInstance {
 		return {
@@ -53,22 +45,5 @@ suite('ChatReferenceAttachment', () => {
 		);
 
 		disposable.dispose();
-	});
-
-	test('opens the referenced backend chat resource via the window open-session link', () => {
-		// The widget hands the entry's opaque backend chat URI straight to the
-		// AHP-owned link builder; it never parses or constructs the URI itself.
-		assert.deepStrictEqual(
-			{
-				defaultChat: buildOpenSessionLinkForChatResource(backendDefaultChat),
-				peerChat: buildOpenSessionLinkForChatResource(backendPeerChat),
-				bareSession: buildOpenSessionLinkForChatResource(backendSession),
-			},
-			{
-				defaultChat: 'agent-host-session://claude/abc123',
-				peerChat: 'agent-host-session://claude/abc123?chat=peer1',
-				bareSession: 'agent-host-session://claude/abc123',
-			}
-		);
 	});
 });

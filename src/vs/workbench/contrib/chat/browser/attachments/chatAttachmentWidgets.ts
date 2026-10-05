@@ -70,7 +70,6 @@ import { ITerminalService } from '../../../terminal/browser/terminal.js';
 import { BrowserEditorInput } from '../../../browserView/common/browserEditorInput.js';
 import { BrowserViewSharingState, IBrowserViewWorkbenchService } from '../../../browserView/common/browserView.js';
 import { IChatContentReference } from '../../common/chatService/chatService.js';
-import { buildOpenSessionLinkForChatResource } from '../../../../../platform/agentHost/common/openSessionLink.js';
 import { coerceImageBuffer } from '../../common/chatImageExtraction.js';
 import { ChatConfiguration } from '../../common/constants.js';
 import { getImageAttachmentLimit, isPastedTextArtifact, IChatRequestPasteVariableEntry, IChatRequestVariableEntry, IBrowserViewVariableEntry, IChatRequestChatReferenceVariableEntry, IChatRequestTranscriptContextVariableEntry, IElementVariableEntry, INotebookOutputVariableEntry, IPromptFileVariableEntry, IPromptTextVariableEntry, ISCMHistoryItemVariableEntry, OmittedState, PromptFileVariableKind, ChatRequestToolReferenceEntry, ISCMHistoryItemChangeVariableEntry, ISCMHistoryItemChangeRangeVariableEntry, ITerminalVariableEntry, isStringVariableEntry, resolveChatContextIcon, ChatContextIconPath } from '../../common/attachments/chatVariableEntries.js';
@@ -1204,7 +1203,7 @@ export class ChatReferenceAttachmentWidget extends AbstractChatAttachmentWidget 
 	}
 
 	private async _openReferencedChat(chatResource: URI): Promise<void> {
-		const link = buildOpenSessionLinkForChatResource(chatResource);
+		const link = chatResource.toString();
 		if (!link) {
 			return;
 		}

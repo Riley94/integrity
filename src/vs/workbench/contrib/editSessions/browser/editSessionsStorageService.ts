@@ -7,8 +7,6 @@ import { Disposable, DisposableStore } from '../../../../base/common/lifecycle.j
 import { localize } from '../../../../nls.js';
 import { Action2, MenuId, MenuRegistry, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { ContextKeyExpr, IContextKey, IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
-import { IEnvironmentService } from '../../../../platform/environment/common/environment.js';
-import { IFileService } from '../../../../platform/files/common/files.js';
 import { IProductService } from '../../../../platform/product/common/productService.js';
 import { IQuickInputService, IQuickPickItem, IQuickPickSeparator } from '../../../../platform/quickinput/common/quickInput.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
@@ -20,7 +18,8 @@ import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { getCurrentAuthenticationSessionInfo } from '../../../services/authentication/browser/authenticationService.js';
 import { isWeb } from '../../../../base/common/platform.js';
-import { IUserDataSyncMachinesService, UserDataSyncMachinesService } from '../../../../platform/userDataSync/common/userDataSyncMachines.js';
+import { IUserDataSyncMachinesService } from '../../../../platform/userDataSync/common/userDataSyncMachines.js';
+import { NullUserDataSyncMachinesService } from '../../../../platform/userDataSync/common/nullUserDataSync.js';
 import { Emitter } from '../../../../base/common/event.js';
 import { CancellationError } from '../../../../base/common/errors.js';
 import { EditSessionsStoreClient } from '../common/editSessionsStorageClient.js';
@@ -71,12 +70,10 @@ export class EditSessionsWorkbenchService extends Disposable implements IEditSes
 	storeClient: EditSessionsStoreClient | undefined; // TODO@joyceerhl lifecycle hack
 
 	constructor(
-		@IFileService private readonly fileService: IFileService,
 		@IStorageService private readonly storageService: IStorageService,
 		@IQuickInputService private readonly quickInputService: IQuickInputService,
 		@IAuthenticationService private readonly authenticationService: IAuthenticationService,
 		@IExtensionService private readonly extensionService: IExtensionService,
-		@IEnvironmentService private readonly environmentService: IEnvironmentService,
 		@IEditSessionsLogService private readonly logService: IEditSessionsLogService,
 		@IProductService private readonly productService: IProductService,
 		@IContextKeyService private readonly contextKeyService: IContextKeyService,
@@ -221,7 +218,7 @@ export class EditSessionsWorkbenchService extends Disposable implements IEditSes
 		}));
 
 		if (this.machineClient === undefined) {
-			this.machineClient = new UserDataSyncMachinesService(this.environmentService, this.fileService, this.storageService, this.storeClient, this.logService, this.productService);
+			this.machineClient = new NullUserDataSyncMachinesService();
 		}
 
 		// If we already have an existing auth session in memory, use that

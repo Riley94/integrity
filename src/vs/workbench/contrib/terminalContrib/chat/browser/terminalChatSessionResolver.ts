@@ -6,7 +6,6 @@
 import { CancellationToken } from '../../../../../base/common/cancellation.js';
 import { isCancellationError, onUnexpectedError } from '../../../../../base/common/errors.js';
 import { OperatingSystem } from '../../../../../base/common/platform.js';
-import { withChatSurfaceMeta } from '../../../../../platform/agentHost/common/meta/agentChatSurfaceMeta.js';
 import { IConfigurationService } from '../../../../../platform/configuration/common/configuration.js';
 import { createDecorator } from '../../../../../platform/instantiation/common/instantiation.js';
 import { IChatModelReference, IChatService } from '../../../chat/common/chatService/chatService.js';
@@ -33,13 +32,15 @@ export interface ITerminalChatSessionResolver {
 	resolve(token: CancellationToken, shellType: string | undefined, os: OperatingSystem): Promise<ITerminalChatSessionResolution | undefined>;
 }
 
-/** Builds the Agent Host metadata for a terminal chat session. */
+/** Builds the chat-surface metadata for a terminal chat session. */
 export function getTerminalChatSessionMeta(shellType: string | undefined, os: OperatingSystem): Record<string, unknown> {
-	return withChatSurfaceMeta(undefined, {
-		surface: 'terminal',
-		shellType,
-		osName: getOperatingSystemName(os),
-	})!;
+	return {
+		'vscode.chat.surface': {
+			surface: 'terminal',
+			...(shellType !== undefined ? { shellType } : {}),
+			osName: getOperatingSystemName(os),
+		},
+	};
 }
 
 function getOperatingSystemName(os: OperatingSystem): string {

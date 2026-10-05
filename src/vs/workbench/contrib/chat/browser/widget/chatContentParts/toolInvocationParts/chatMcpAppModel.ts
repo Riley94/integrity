@@ -20,7 +20,6 @@ import { hasKey, isDefined } from '../../../../../../../base/common/types.js';
 import { URI } from '../../../../../../../base/common/uri.js';
 import { generateUuid } from '../../../../../../../base/common/uuid.js';
 import { localize } from '../../../../../../../nls.js';
-import { toAgentHostUri } from '../../../../../../../platform/agentHost/common/agentHostUri.js';
 import { IInstantiationService } from '../../../../../../../platform/instantiation/common/instantiation.js';
 import { ILogService } from '../../../../../../../platform/log/common/log.js';
 import { IOpenerService } from '../../../../../../../platform/opener/common/opener.js';
@@ -632,7 +631,7 @@ export class ChatMcpAppModel extends Disposable {
 	 */
 	private _resolveServerResourceUri(serverUri: string): URI {
 		if (this.renderData.kind === 'agentHost') {
-			return toAgentHostUri(URI.parse(serverUri), this.renderData.connectionAuthority);
+			return URI.parse(serverUri);
 		}
 		return McpResourceURI.fromServer({ id: this.renderData.serverDefinitionId, label: '' }, serverUri);
 	}

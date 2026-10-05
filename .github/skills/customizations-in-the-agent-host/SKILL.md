@@ -172,11 +172,4 @@ Known false alarms:
 ```sh
 npm run typecheck-client
 ./scripts/test.sh --grep "customizationEnablement"
-./scripts/test-integration.sh --runGlob "**/agentHost/**/{sessionConfig,toolApproval,codexCustomizations}.integrationTest.js"
-./scripts/test-integration.sh --run src/vs/platform/agentHost/test/node/claudeAgent.integrationTest.ts
 ```
-
-Tests that construct an agent session directly need
-`IAgentHostCustomizationEnablementService` in their service collection; use
-`createNoopCustomizationEnablementService()` from
-`src/vs/platform/agentHost/test/node/testCustomizationEnablementService.ts`.

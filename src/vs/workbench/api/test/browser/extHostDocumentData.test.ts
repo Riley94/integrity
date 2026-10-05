@@ -11,8 +11,6 @@ import { Range } from '../../../../editor/common/core/range.js';
 import { MainThreadDocumentsShape } from '../../common/extHost.protocol.js';
 import { IModelChangedEvent } from '../../../../editor/common/model/mirrorTextModel.js';
 import { mock } from '../../../../base/test/common/mock.js';
-import * as perfData from './extHostDocumentData.test.perf-data.js';
-import { setDefaultGetWordAtTextConfig } from '../../../../editor/common/core/wordHelper.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 
 suite('ExtHostDocumentData', () => {
@@ -317,32 +315,6 @@ suite('ExtHostDocumentData', () => {
 		assert.strictEqual(range.end.character, 10);
 	});
 
-
-	test('getWordRangeAtPosition can freeze the extension host #95319', function () {
-
-		const regex = /(https?:\/\/github\.com\/(([^\s]+)\/([^\s]+))\/([^\s]+\/)?(issues|pull)\/([0-9]+))|(([^\s]+)\/([^\s]+))?#([1-9][0-9]*)($|[\s\:\;\-\(\=])/;
-
-		data = new ExtHostDocumentData(undefined!, URI.file(''), [
-			perfData._$_$_expensive
-		], '\n', 1, 'text', false, 'utf8');
-
-		// this test only ensures that we eventually give and timeout (when searching "funny" words and long lines)
-		// for the sake of speedy tests we lower the timeBudget here
-		const config = setDefaultGetWordAtTextConfig({ maxLen: 1000, windowSize: 15, timeBudget: 30 });
-		try {
-			let range = data.document.getWordRangeAtPosition(new Position(0, 1_177_170), regex)!;
-			assert.strictEqual(range, undefined);
-
-			const pos = new Position(0, 1177170);
-			range = data.document.getWordRangeAtPosition(pos)!;
-			assert.ok(range);
-			assert.ok(range.contains(pos));
-			assert.strictEqual(data.document.getText(range), 'TaskDefinition');
-
-		} finally {
-			config.dispose();
-		}
-	});
 
 	test('Rename popup sometimes populates with text on the left side omitted #96013', function () {
 

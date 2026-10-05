@@ -8,8 +8,6 @@ import { Disposable, DisposableStore } from '../../../../../base/common/lifecycl
 import { isElectron } from '../../../../../base/common/platform.js';
 import { ThemeIcon } from '../../../../../base/common/themables.js';
 import { localize } from '../../../../../nls.js';
-import { agentHostAuthority } from '../../../../../platform/agentHost/common/agentHostUri.js';
-import { IRemoteAgentHostService } from '../../../../../platform/agentHost/common/remoteAgentHostService.js';
 import { IClipboardService } from '../../../../../platform/clipboard/common/clipboardService.js';
 import { ICommandService } from '../../../../../platform/commands/common/commands.js';
 import { IInstantiationService } from '../../../../../platform/instantiation/common/instantiation.js';
@@ -20,7 +18,6 @@ import { EditorResourceAccessor, SideBySideEditor } from '../../../../common/edi
 import { DiffEditorInput } from '../../../../common/editor/diffEditorInput.js';
 import { IEditorService } from '../../../../services/editor/common/editorService.js';
 import { IHostService } from '../../../../services/host/browser/host.js';
-import { IPathService } from '../../../../services/path/common/pathService.js';
 import { UntitledTextEditorInput } from '../../../../services/untitled/common/untitledTextEditorInput.js';
 import { FileEditorInput } from '../../../files/browser/editors/fileEditorInput.js';
 import { NotebookEditorInput } from '../../../notebook/common/notebookEditorInput.js';
@@ -32,13 +29,11 @@ import { IChatWidget } from '../chat.js';
 import { imageToHash, isImage } from '../widget/input/editor/chatPasteProviders.js';
 import { convertBufferToScreenshotVariable } from '../attachments/chatScreenshotContext.js';
 import { ChatInstructionsPickerPick } from '../promptSyntax/attachInstructionsAction.js';
-import { IChatSessionsService, isAgentHostTarget } from '../../common/chatSessionsService.js';
-import { getAgentSessionProviderIcon, AgentSessionProviders } from '../agentSessions/agentSessions.js';
+import { IChatSessionsService, isAgentHostTarget, SessionType } from '../../common/chatSessionsService.js';
 import { ITerminalService } from '../../../terminal/browser/terminal.js';
 import { URI } from '../../../../../base/common/uri.js';
 import { ITerminalCommand, TerminalCapability } from '../../../../../platform/terminal/common/capabilities/capabilities.js';
 import { getChatSessionType } from '../../common/model/chatUri.js';
-import { buildHostLocalEventsPath } from '../copilotCliEventsUri.js';
 import { IGitService } from '../../../git/common/gitService.js';
 import { getGitHubRemoteInfo } from '../../../git/common/utils.js';
 
@@ -428,8 +423,6 @@ class SessionReferenceContextPickerPick implements IChatContextPickerItem {
 
 	constructor(
 		@IChatSessionsService private readonly _chatSessionsService: IChatSessionsService,
-		@IPathService private readonly _pathService: IPathService,
-		@IRemoteAgentHostService private readonly _remoteAgentHostService: IRemoteAgentHostService,
 	) { }
 
 	isEnabled(widget: IChatWidget): boolean {
@@ -443,9 +436,9 @@ class SessionReferenceContextPickerPick implements IChatContextPickerItem {
 			placeholder: localize('chatContext.sessions.placeholder', 'Select a session'),
 			picks: (async () => {
 				const picks: { pick: IChatContextPickerPickItem; lastActivity: number }[] = [];
-				const sessionProviderFilter = [AgentSessionProviders.Local, AgentSessionProviders.Background, AgentSessionProviders.AgentHostCopilot];
+				const sessionProviderFilter = [SessionType.Local, SessionType.CopilotCLI, SessionType.AgentHostCopilot];
 				for await (const group of this._chatSessionsService.getChatSessionItems(sessionProviderFilter, CancellationToken.None)) {
-					const providerIcon = getAgentSessionProviderIcon(group.chatSessionType);
+					const providerIcon = Codicon.comment;
 					for (const item of group.items) {
 						if (currentSessionResource && item.resource.toString() === currentSessionResource.toString()) {
 							continue;
@@ -478,12 +471,7 @@ class SessionReferenceContextPickerPick implements IChatContextPickerItem {
 		};
 	}
 
-	private _canAttachCopilotCliSession(sessionResource: URI): boolean {
-		// For now, attachments while in an Agent Host Copilot harness are attachable when backed by Copilot CLI events.jsonl.
-		return !!buildHostLocalEventsPath(
-			sessionResource,
-			this._pathService.userHome({ preferLocal: true }),
-			authority => this._remoteAgentHostService.connections.find(connection => agentHostAuthority(connection.address) === authority),
-		);
+	private _canAttachCopilotCliSession(_sessionResource: URI): boolean {
+		return false;
 	}
 }

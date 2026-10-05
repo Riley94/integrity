@@ -54,8 +54,6 @@ import { AgentNetworkDomainSettingId } from '../../../../../../platform/networkF
 import { AgentSandboxEnabledValue, AgentSandboxSettingId } from '../../../../../../platform/sandbox/common/settings.js';
 import { TerminalChatService } from '../../../chat/browser/terminalChatService.js';
 import type { IMarkdownString } from '../../../../../../base/common/htmlContent.js';
-import { IAgentSessionsService } from '../../../../chat/browser/agentSessions/agentSessionsService.js';
-import { IAgentSession } from '../../../../chat/browser/agentSessions/agentSessionsModel.js';
 import { isDisposable, toDisposable } from '../../../../../../base/common/lifecycle.js';
 import { ChatAgentToolsContribution } from '../../browser/terminal.chatAgentTools.contribution.js';
 import { TerminalToolId } from '../../browser/tools/toolIds.js';
@@ -93,7 +91,6 @@ suite('RunInTerminalTool', () => {
 	let workspaceContextService: TestContextService;
 	let terminalServiceDisposeEmitter: Emitter<ITerminalInstance>;
 	let chatServiceDisposeEmitter: Emitter<{ sessionResources: URI[]; reason: 'cleared' }>;
-	let chatSessionArchivedEmitter: Emitter<IAgentSession>;
 	let capturedSteeringRequests: { sessionResource: URI; message: string; options?: IChatSendRequestOptions }[];
 	let sandboxEnabled: boolean;
 	let sandboxPrereqResult: ITerminalSandboxPrerequisiteCheckResult;
@@ -193,7 +190,6 @@ suite('RunInTerminalTool', () => {
 		} as unknown as ITerminalInstance;
 		terminalServiceDisposeEmitter = new Emitter<ITerminalInstance>();
 		chatServiceDisposeEmitter = new Emitter<{ sessionResources: URI[]; reason: 'cleared' }>();
-		chatSessionArchivedEmitter = new Emitter<IAgentSession>();
 		capturedSteeringRequests = [];
 		chatSessions = new Map<string, ChatModel>();
 		chatSessionContribution = undefined;
@@ -220,12 +216,6 @@ suite('RunInTerminalTool', () => {
 			}) as unknown as NonNullable<ReturnType<IChatService['acquireExistingSession']>>,
 		} as unknown as IChatService;
 		instantiationService.stub(IChatService, chatServiceStub);
-		instantiationService.stub(IAgentSessionsService, {
-			onDidChangeSessionArchivedState: chatSessionArchivedEmitter.event,
-			model: {
-				onDidChangeSessionArchivedState: chatSessionArchivedEmitter.event,
-			} as IAgentSessionsService['model']
-		});
 		instantiationService.stub(IChatSessionsService, {
 			getChatSessionContribution: () => chatSessionContribution,
 		});
@@ -2501,118 +2491,6 @@ suite('RunInTerminalTool', () => {
 			dispose: () => { /* Mock dispose */ },
 			processId
 		} as unknown as ITerminalInstance);
-
-		test('should restore all terminals into the session terminal map and dispose them when archived', () => {
-			const sessionId = 'test-session-restored-archive';
-			const sessionResource = LocalChatSessionUri.forSession(sessionId);
-
-			let terminal1Disposed = false;
-			let terminal2Disposed = false;
-			const terminal1DisposedEmitter = new Emitter<void>();
-			const terminal2DisposedEmitter = new Emitter<void>();
-			const mockTerminal1 = {
-				dispose: () => {
-					terminal1Disposed = true;
-					terminal1DisposedEmitter.fire();
-				},
-				onDisposed: terminal1DisposedEmitter.event,
-				processId: 55555,
-			} as unknown as ITerminalInstance;
-			const mockTerminal2 = {
-				dispose: () => {
-					terminal2Disposed = true;
-					terminal2DisposedEmitter.fire();
-				},
-				onDisposed: terminal2DisposedEmitter.event,
-				processId: 66666,
-			} as unknown as ITerminalInstance;
-
-			storageService.store('chat.terminalSessions', JSON.stringify({
-				[mockTerminal1.processId!]: {
-					sessionId,
-					id: 'restored-1',
-					shellIntegrationQuality: ShellIntegrationQuality.None,
-					isBackground: true,
-				},
-				[mockTerminal2.processId!]: {
-					sessionId,
-					id: 'restored-2',
-					shellIntegrationQuality: ShellIntegrationQuality.None,
-					isBackground: false,
-				}
-			}), StorageScope.WORKSPACE, StorageTarget.USER);
-
-			instantiationService.stub(ITerminalService, {
-				onDidDisposeInstance: terminalServiceDisposeEmitter.event,
-				instances: [mockTerminal1, mockTerminal2],
-				foregroundInstances: [],
-				setNextCommandId: async () => { }
-			});
-
-			const restoredRunInTerminalTool = store.add(instantiationService.createInstance(TestRunInTerminalTool));
-			const restoredSessionTerminals = restoredRunInTerminalTool.sessionTerminalInstances.get(sessionResource);
-			strictEqual(restoredSessionTerminals?.size, 2, 'Both restored terminals should be tracked for the session');
-
-			chatSessionArchivedEmitter.fire({
-				resource: sessionResource,
-				isArchived: () => true,
-			} as unknown as IAgentSession);
-
-			strictEqual(terminal1Disposed, true, 'Restored background terminal should have been disposed');
-			strictEqual(terminal2Disposed, true, 'Restored foreground terminal should have been disposed');
-			ok(!restoredRunInTerminalTool.sessionTerminalAssociations.has(sessionResource), 'Foreground terminal association should be removed after archive');
-			ok(!restoredRunInTerminalTool.sessionTerminalInstances.has(sessionResource), 'All restored terminals for the session should be removed after archive');
-		});
-
-		test('should dispose all terminals associated with a single chat session when archived', () => {
-			const sessionId = 'test-session-archive';
-			const sessionResource = LocalChatSessionUri.forSession(sessionId);
-			const mockTerminal1 = { dispose: () => { /* Mock dispose */ }, processId: 33333 } as unknown as ITerminalInstance;
-			const mockTerminal2 = { dispose: () => { /* Mock dispose */ }, processId: 44444 } as unknown as ITerminalInstance;
-
-			let terminal1Disposed = false;
-			let terminal2Disposed = false;
-			mockTerminal1.dispose = () => { terminal1Disposed = true; };
-			mockTerminal2.dispose = () => { terminal2Disposed = true; };
-
-			runInTerminalTool.sessionTerminalAssociations.set(sessionResource, {
-				instance: mockTerminal2,
-				shellIntegrationQuality: ShellIntegrationQuality.None
-			});
-			runInTerminalTool.sessionTerminalInstances.set(sessionResource, new Set([mockTerminal1, mockTerminal2]));
-
-			// Initialize lazy archive listener before firing the archive event.
-			const ensureArchivedSessionListener = (runInTerminalTool as unknown as Record<string, () => void>)['_ensureArchivedSessionListener'];
-			ensureArchivedSessionListener.call(runInTerminalTool);
-
-			chatSessionArchivedEmitter.fire({
-				resource: sessionResource,
-				isArchived: () => true,
-			} as unknown as IAgentSession);
-
-			strictEqual(terminal1Disposed, true, 'Terminal 1 should have been disposed');
-			strictEqual(terminal2Disposed, true, 'Terminal 2 should have been disposed');
-			ok(!runInTerminalTool.sessionTerminalAssociations.has(sessionResource), 'Terminal association should be removed after archive');
-			ok(!runInTerminalTool.sessionTerminalInstances.has(sessionResource), 'All tracked terminals for the session should be removed after archive');
-		});
-
-		test('should not access agent sessions model when initializing archive listener', () => {
-			let modelAccessed = false;
-			instantiationService.stub(IAgentSessionsService, {
-				onDidChangeSessionArchivedState: chatSessionArchivedEmitter.event,
-				get model() {
-					modelAccessed = true;
-					throw new Error('model should not be accessed when wiring archive listener');
-				},
-			} as unknown as IAgentSessionsService);
-
-			const noModelAccessRunInTerminalTool = store.add(instantiationService.createInstance(TestRunInTerminalTool));
-			const ensureArchivedSessionListener = (noModelAccessRunInTerminalTool as unknown as Record<string, () => void>)['_ensureArchivedSessionListener'];
-			ensureArchivedSessionListener.call(noModelAccessRunInTerminalTool);
-
-			strictEqual(modelAccessed, false, 'Agent sessions model should not be accessed when initializing archive listener');
-		});
-
 		test('should dispose all terminals associated with a single chat session', () => {
 			const sessionId = 'test-session-multiple-terminals';
 			const mockTerminal1 = createMockTerminal(11111);
@@ -3465,8 +3343,6 @@ suite('ChatAgentToolsContribution - tool registration refresh', () => {
 
 		const terminalServiceDisposeEmitter = store.add(new Emitter<ITerminalInstance>());
 		const chatServiceDisposeEmitter = store.add(new Emitter<{ sessionResources: URI[]; reason: 'cleared' }>());
-		const chatSessionArchivedEmitter = store.add(new Emitter<IAgentSession>());
-
 		instantiationService = workbenchInstantiationService({
 			configurationService: () => configurationService,
 			fileService: () => fileService,
@@ -3475,12 +3351,6 @@ suite('ChatAgentToolsContribution - tool registration refresh', () => {
 		instantiationService.stub(IChatService, {
 			onDidDisposeSession: chatServiceDisposeEmitter.event,
 			getSession: () => undefined,
-		});
-		instantiationService.stub(IAgentSessionsService, {
-			onDidChangeSessionArchivedState: chatSessionArchivedEmitter.event,
-			model: {
-				onDidChangeSessionArchivedState: chatSessionArchivedEmitter.event,
-			} as IAgentSessionsService['model']
 		});
 		const terminalInstancesChangedEmitter = store.add(new Emitter<void>());
 		instantiationService.stub(ITerminalService, {

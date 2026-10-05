@@ -35,7 +35,22 @@ import { HookTypeValue } from '../promptSyntax/hookTypes.js';
 import { IParsedChatRequest } from '../requestParser/chatParserTypes.js';
 import { IChatParserContext } from '../requestParser/chatRequestParser.js';
 import { IPreparedToolInvocation, IToolConfirmationMessages, IToolResult, IToolResultInputOutputDetails, ToolDataSource } from '../tools/languageModelToolsService.js';
-import { ConfirmationOptionKind, type McpOAuthClient } from '../../../../../platform/agentHost/common/state/protocol/state.js';
+export const enum ConfirmationOptionKind {
+	Approve = 'approve',
+	Deny = 'deny',
+}
+
+export interface ConfirmationOption {
+	id: string;
+	label: string;
+	kind: ConfirmationOptionKind;
+	group?: number;
+}
+
+export interface McpOAuthClient {
+	clientId: string;
+	clientSecret?: string;
+}
 
 export interface IChatRequest {
 	message: string;
@@ -1327,7 +1342,7 @@ export interface IChatModifiedFilesConfirmationData {
  * comments themselves are not carried here: the renderer fetches them (and
  * performs reveal/delete/accept actions) through commands registered by the
  * agent feedback feature, so this workbench/chat layer stays decoupled from the
- * `vs/sessions` feedback model. The renderer resolves the owning session from
+ * feedback model. The renderer resolves the owning session from
  * its render context. Only the confirmation button labels are needed up front.
  */
 export interface IChatAgentFeedbackReviewConfirmationData {
@@ -1365,7 +1380,7 @@ export interface IChatAgentFeedbackPullRequestThreadLink {
 /**
  * Command ids the agent feedback review confirmation renderer (workbench/chat)
  * uses to fetch unreviewed comments and apply the user's selection. They are
- * implemented by the agent feedback feature in `vs/sessions`, keeping the chat
+ * implemented by the agent feedback feature, keeping the chat
  * layer decoupled from the feedback model. Most take the rendered session or chat
  * resource (`UriComponents`) as their first argument and resolve it to the owning
  * session; {@link AgentFeedbackReviewCommandId.RevealAt} instead resolves the

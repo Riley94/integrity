@@ -26,7 +26,7 @@ import { ChatViewPane } from '../widgetHosts/viewPane/chatViewPane.js';
 import { EditingSessionAction, EditingSessionActionContext, getEditingSessionContext } from '../chatEditing/chatEditingActions.js';
 import { ACTION_ID_NEW_CHAT, ACTION_ID_NEW_EDIT_SESSION, CHAT_CATEGORY, clearChatSessionPreservingType, handleCurrentEditingSession } from './chatActions.js';
 import { clearChatEditor } from './chatClear.js';
-import { AgentSessionProviders, AgentSessionsViewerOrientation } from '../agentSessions/agentSessions.js';
+import { SessionType } from '../../common/chatSessionsService.js';
 
 export interface INewEditSessionActionContext {
 
@@ -207,7 +207,7 @@ export function registerNewChatActions() {
 				return;
 			}
 
-			await runNewChatAction(accessor, context, executeCommandContext, AgentSessionProviders.Local);
+			await runNewChatAction(accessor, context, executeCommandContext, SessionType.Local);
 		}
 	});
 
@@ -217,7 +217,7 @@ export function registerNewChatActions() {
 			title: localize2('chat.goBack', "Go Back"),
 			icon: Codicon.arrowLeft,
 		},
-		when: ChatContextKeys.agentSessionsViewerOrientation.notEqualsTo(AgentSessionsViewerOrientation.SideBySide), // when sessions show side by side, no need for a back button
+		when: ChatContextKeys.agentSessionsViewerOrientation.notEqualsTo(2), // when sessions show side by side, no need for a back button
 		group: 'navigation',
 		order: 1
 	});
@@ -327,7 +327,7 @@ async function runNewChatAction(
 	accessor: ServicesAccessor,
 	context: EditingSessionActionContext | undefined,
 	executeCommandContext?: INewEditSessionActionContext,
-	sessionType?: AgentSessionProviders
+	sessionType?: string
 ) {
 	const accessibilityService = accessor.get(IAccessibilityService);
 	const instantiationService = accessor.get(IInstantiationService);

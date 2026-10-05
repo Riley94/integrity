@@ -23,7 +23,6 @@ import { IChatSessionsService, localChatSessionType } from '../../common/chatSes
 import { getChatSessionType, LocalChatSessionUri } from '../../common/model/chatUri.js';
 import { IChatWidgetService } from '../chat.js';
 import { IPreferencesService } from '../../../../services/preferences/common/preferences.js';
-import { isAgentHostSession } from './agentHostLogSources.js';
 import { isChatDebugLoggingEnabledForSession, renderChatDebugLoggingDisabledMessage } from './chatDebugEnablement.js';
 import { setupBreadcrumbKeyboardNavigation, TextBreadcrumbItem } from './chatDebugTypes.js';
 
@@ -37,7 +36,6 @@ export const enum OverviewNavigation {
 	Logs = 'logs',
 	FlowChart = 'flowchart',
 	CacheExplorer = 'cache',
-	WireLog = 'wirelog',
 }
 
 export class ChatDebugOverviewView extends Disposable {
@@ -277,16 +275,6 @@ export class ChatDebugOverviewView extends Disposable {
 		this.loadDisposables.add(cacheBtn.onDidClick(() => {
 			this._onNavigate.fire(OverviewNavigation.CacheExplorer);
 		}));
-
-		// The AHP log is only meaningful for Agent Host sessions.
-		if (isAgentHostSession(this.currentSessionResource)) {
-			const wireLogBtn = this.loadDisposables.add(new Button(row, { ...defaultButtonStyles, secondary: true, supportIcons: true, title: localize('chatDebug.ahpLog', "AHP Log") }));
-			wireLogBtn.element.classList.add('chat-debug-overview-action-button');
-			wireLogBtn.label = `$(arrow-swap) ${localize('chatDebug.ahpLog', "AHP Log")}`;
-			this.loadDisposables.add(wireLogBtn.onDidClick(() => {
-				this._onNavigate.fire(OverviewNavigation.WireLog);
-			}));
-		}
 
 	}
 

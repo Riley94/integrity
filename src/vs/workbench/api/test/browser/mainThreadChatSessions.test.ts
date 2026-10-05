@@ -8,7 +8,6 @@ import * as sinon from 'sinon';
 import type * as vscode from 'vscode';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { CancellationError } from '../../../../base/common/errors.js';
-import { Event } from '../../../../base/common/event.js';
 import { DisposableStore } from '../../../../base/common/lifecycle.js';
 import { MarshalledId } from '../../../../base/common/marshallingIds.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -22,8 +21,6 @@ import { IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
 import { TestInstantiationService } from '../../../../platform/instantiation/test/common/instantiationServiceMock.js';
 import { ILabelService } from '../../../../platform/label/common/label.js';
 import { ILogService, NullLogService } from '../../../../platform/log/common/log.js';
-import { IAgentSessionsModel } from '../../../contrib/chat/browser/agentSessions/agentSessionsModel.js';
-import { IAgentSessionsService } from '../../../contrib/chat/browser/agentSessions/agentSessionsService.js';
 import { ChatSessionsService } from '../../../contrib/chat/browser/chatSessions/chatSessions.contribution.js';
 import { IChatProgress, IChatProgressMessage, IChatService } from '../../../contrib/chat/common/chatService/chatService.js';
 import { IChatSessionProviderOptionGroup, IChatSessionItem, IChatSessionRequestHistoryItem, IChatSessionsService } from '../../../contrib/chat/common/chatSessionsService.js';
@@ -563,15 +560,6 @@ suite('MainThreadChatSessions', function () {
 			}
 		});
 		instantiationService.stub(IChatService, new MockChatService());
-		instantiationService.stub(IAgentSessionsService, new class extends mock<IAgentSessionsService>() {
-			override get model(): IAgentSessionsModel {
-				return new class extends mock<IAgentSessionsModel>() {
-					override onDidChangeSessionArchivedState = Event.None;
-				};
-			}
-
-		});
-
 		chatSessionsService = disposables.add(instantiationService.createInstance(ChatSessionsService));
 		instantiationService.stub(IChatSessionsService, chatSessionsService);
 		mainThread = disposables.add(instantiationService.createInstance(MainThreadChatSessions, extHostContext));

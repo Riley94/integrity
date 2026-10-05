@@ -6,7 +6,7 @@ Scope: `src/vs/sessions/**`
 
 ## Test the boundary that failed
 
-- **Scope:** `src/vs/sessions/**/test/**`, `src/vs/platform/agentHost/test/**`
+- **Scope:** `src/vs/sessions/**/test/**`
 - **Learning:** Regression tests should exercise the user-facing or transport boundary where behavior failed, not only an internal helper, mock shortcut, or diagnostic message.
 - **Evidence:** Historical fixes passed helper-level tests while DOM listeners were disconnected, and provider mocks bypassed protocol mappers that had dropped optional metadata.
 - **Disposition:** Candidate for the repository test-writing guidance; concrete recurrences belong in focused regression tests.

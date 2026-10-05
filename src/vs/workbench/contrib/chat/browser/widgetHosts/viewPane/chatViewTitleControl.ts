@@ -14,13 +14,11 @@ import { MarshalledId } from '../../../../../../base/common/marshallingIds.js';
 import { localize } from '../../../../../../nls.js';
 import { HiddenItemStrategy, MenuWorkbenchToolBar } from '../../../../../../platform/actions/browser/toolbar.js';
 import { Action2, MenuId, registerAction2 } from '../../../../../../platform/actions/common/actions.js';
-import { IInstantiationService, ServicesAccessor } from '../../../../../../platform/instantiation/common/instantiation.js';
+import { IInstantiationService } from '../../../../../../platform/instantiation/common/instantiation.js';
 import { IChatViewTitleActionContext } from '../../../common/actions/chatActions.js';
 import { IChatModel } from '../../../common/model/chatModel.js';
 import { ActionViewItem, IActionViewItemOptions } from '../../../../../../base/browser/ui/actionbar/actionViewItems.js';
 import { IAction } from '../../../../../../base/common/actions.js';
-import { AgentSessionsPicker } from '../../agentSessions/agentSessionsPicker.js';
-
 export interface IChatViewTitleDelegate {
 	focusChat(): void;
 }
@@ -73,8 +71,6 @@ export class ChatViewTitleControl extends Disposable {
 	}
 
 	private registerActions(): void {
-		const that = this;
-
 		this._register(registerAction2(class extends Action2 {
 			constructor() {
 				super({
@@ -89,11 +85,7 @@ export class ChatViewTitleControl extends Disposable {
 				});
 			}
 
-			async run(accessor: ServicesAccessor): Promise<void> {
-				const instantiationService = accessor.get(IInstantiationService);
-
-				const agentSessionsPicker = instantiationService.createInstance(AgentSessionsPicker, that.titleLabel.value?.element, undefined);
-				await agentSessionsPicker.pickAgentSession();
+			async run(): Promise<void> {
 			}
 		}));
 	}

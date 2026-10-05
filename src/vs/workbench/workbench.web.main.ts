@@ -65,7 +65,6 @@ import './services/workingCopy/browser/workingCopyBackupService.js';
 import './services/tunnel/browser/tunnelService.js';
 import './services/files/browser/elevatedFileService.js';
 import './services/workingCopy/browser/workingCopyHistoryService.js';
-import './services/userDataSync/browser/webUserDataSyncEnablementService.js';
 import './services/userDataProfile/browser/userDataProfileStorageService.js';
 import './services/configurationResolver/browser/configurationResolverService.js';
 import '../platform/extensionResourceLoader/browser/extensionResourceLoaderService.js';
@@ -82,13 +81,6 @@ import { IExtensionTipsService } from '../platform/extensionManagement/common/ex
 import { ExtensionTipsService } from '../platform/extensionManagement/common/extensionTipsService.js';
 import { IWorkbenchExtensionManagementService } from './services/extensionManagement/common/extensionManagement.js';
 import { ExtensionManagementService } from './services/extensionManagement/common/extensionManagementService.js';
-import { UserDataSyncMachinesService, IUserDataSyncMachinesService } from '../platform/userDataSync/common/userDataSyncMachines.js';
-import { IUserDataSyncStoreService, IUserDataSyncService, IUserDataAutoSyncService, IUserDataSyncLocalStoreService, IUserDataSyncResourceProviderService } from '../platform/userDataSync/common/userDataSync.js';
-import { UserDataSyncStoreService } from '../platform/userDataSync/common/userDataSyncStoreService.js';
-import { UserDataSyncLocalStoreService } from '../platform/userDataSync/common/userDataSyncLocalStoreService.js';
-import { UserDataSyncService } from '../platform/userDataSync/common/userDataSyncService.js';
-import { IUserDataSyncAccountService, UserDataSyncAccountService } from '../platform/userDataSync/common/userDataSyncAccount.js';
-import { UserDataAutoSyncService } from '../platform/userDataSync/common/userDataAutoSyncService.js';
 import { AccessibilityService } from '../platform/accessibility/browser/accessibilityService.js';
 import { ICustomEndpointTelemetryService } from '../platform/telemetry/common/telemetry.js';
 import { NullEndpointTelemetryService } from '../platform/telemetry/common/telemetryUtils.js';
@@ -101,23 +93,10 @@ import { WebLanguagePacksService } from '../platform/languagePacks/browser/langu
 import { IWebContentExtractorService, NullWebContentExtractorService, ISharedWebContentExtractorService, NullSharedWebContentExtractorService } from '../platform/webContentExtractor/common/webContentExtractor.js';
 import { IMcpGalleryManifestService } from '../platform/mcp/common/mcpGalleryManifest.js';
 import { WorkbenchMcpGalleryManifestService } from './services/mcp/browser/mcpGalleryManifestService.js';
-import { UserDataSyncResourceProviderService } from '../platform/userDataSync/common/userDataSyncResourceProvider.js';
-import { IAgentHostService } from '../platform/agentHost/common/agentService.js';
-import { EditorRemoteAgentHostServiceClient } from './services/agentHost/browser/editorRemoteAgentHostServiceClient.js';
-import { IRemoteAgentHostService, NullRemoteAgentHostService } from '../platform/agentHost/common/remoteAgentHostService.js';
-import { BrowserAgentHostDebugLogsExportService, IAgentHostDebugLogsExportService } from './contrib/chat/browser/actions/exportAgentHostDebugLogsAction.js';
-import './services/agentHost/browser/webAgentHostEnablementService.js';
 
 registerSingleton(IWorkbenchExtensionManagementService, ExtensionManagementService, InstantiationType.Delayed);
 registerSingleton(IAccessibilityService, AccessibilityService, InstantiationType.Delayed);
 registerSingleton(IContextMenuService, ContextMenuService, InstantiationType.Delayed);
-registerSingleton(IUserDataSyncStoreService, UserDataSyncStoreService, InstantiationType.Delayed);
-registerSingleton(IUserDataSyncMachinesService, UserDataSyncMachinesService, InstantiationType.Delayed);
-registerSingleton(IUserDataSyncLocalStoreService, UserDataSyncLocalStoreService, InstantiationType.Delayed);
-registerSingleton(IUserDataSyncAccountService, UserDataSyncAccountService, InstantiationType.Delayed);
-registerSingleton(IUserDataSyncService, UserDataSyncService, InstantiationType.Delayed);
-registerSingleton(IUserDataSyncResourceProviderService, UserDataSyncResourceProviderService, InstantiationType.Delayed);
-registerSingleton(IUserDataAutoSyncService, UserDataAutoSyncService, InstantiationType.Eager /* Eager to start auto sync */);
 registerSingleton(ITitleService, BrowserTitleService, InstantiationType.Eager);
 registerSingleton(IExtensionTipsService, ExtensionTipsService, InstantiationType.Delayed);
 registerSingleton(ITimerService, TimerService, InstantiationType.Delayed);
@@ -127,9 +106,6 @@ registerSingleton(ILanguagePackService, WebLanguagePacksService, InstantiationTy
 registerSingleton(IWebContentExtractorService, NullWebContentExtractorService, InstantiationType.Delayed);
 registerSingleton(ISharedWebContentExtractorService, NullSharedWebContentExtractorService, InstantiationType.Delayed);
 registerSingleton(IMcpGalleryManifestService, WorkbenchMcpGalleryManifestService, InstantiationType.Delayed);
-registerSingleton(IAgentHostService, EditorRemoteAgentHostServiceClient, InstantiationType.Delayed);
-registerSingleton(IRemoteAgentHostService, NullRemoteAgentHostService, InstantiationType.Delayed);
-registerSingleton(IAgentHostDebugLogsExportService, BrowserAgentHostDebugLogsExportService, InstantiationType.Delayed);
 
 //#endregion
 

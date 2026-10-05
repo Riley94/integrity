@@ -36,7 +36,8 @@ import { IAccessibilityService } from '../../../../platform/accessibility/common
 import { URI } from '../../../../base/common/uri.js';
 import { isEqual } from '../../../../base/common/resources.js';
 import { Schemas } from '../../../../base/common/network.js';
-import { getCopilotRootPaths } from '../../../../platform/agentHost/common/copilotHome.js';
+import { join } from '../../../../base/common/path.js';
+import { IProcessEnvironment } from '../../../../base/common/platform.js';
 import { localChatSessionType } from '../../chat/common/chatSessionsService.js';
 import { INativeWorkbenchEnvironmentService } from '../../../services/environment/electron-browser/environmentService.js';
 import { ITunnelProxyInfo } from '../../../../platform/tunnel/common/tunnelProxy.js';
@@ -68,6 +69,11 @@ const browserViewContextMenuCommands = [
 	BrowserViewCommandId.GoForward,
 	BrowserViewCommandId.Reload,
 ];
+
+function getCopilotRootPaths(userHomePath: string, environment: IProcessEnvironment): string[] {
+	const copilotHome = environment['COPILOT_HOME'] || join(userHomePath, '.copilot');
+	return [...new Set([copilotHome, join(userHomePath, '.copilot')])];
+}
 
 export class BrowserViewWorkbenchService extends Disposable implements IBrowserViewWorkbenchService {
 	declare readonly _serviceBrand: undefined;

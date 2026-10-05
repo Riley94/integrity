@@ -79,9 +79,6 @@ import { IStorageService, StorageScope, StorageTarget } from '../../../../../../
 import { IThemeService } from '../../../../../../platform/theme/common/themeService.js';
 import { ISharedWebContentExtractorService } from '../../../../../../platform/webContentExtractor/common/webContentExtractor.js';
 import { IWorkspaceContextService, WorkbenchState } from '../../../../../../platform/workspace/common/workspace.js';
-import { ISCMService } from '../../../../scm/common/scm.js';
-import { IWorkbenchLayoutService, Position } from '../../../../../services/layout/browser/layoutService.js';
-import { IViewDescriptorService, ViewContainerLocation } from '../../../../../common/views.js';
 import { ResourceLabels } from '../../../../../browser/labels.js';
 import { IChatEntitlementService } from '../../../../../services/chat/common/chatEntitlementService.js';
 import { ACTIVE_GROUP, IEditorService, SIDE_GROUP } from '../../../../../services/editor/common/editorService.js';
@@ -94,10 +91,9 @@ import { ChatContextKeys } from '../../../common/actions/chatContextKeys.js';
 import { ChatRequestVariableSet, getImageAttachmentLimit, IChatRequestVariableEntry, isPastedTextArtifact, isAgentHostCompletionVariableEntry, isBrowserViewVariableEntry, isElementVariableEntry, isExplicitFileOrImageVariableEntry, isImageVariableEntry, isNotebookOutputVariableEntry, isPasteVariableEntry, isPromptFileVariableEntry, isPromptTextVariableEntry, isSCMHistoryItemChangeRangeVariableEntry, isSCMHistoryItemChangeVariableEntry, isSCMHistoryItemVariableEntry, isStringVariableEntry, OmittedState } from '../../../common/attachments/chatVariableEntries.js';
 import { ChatMode, getModeNameForTelemetry, IChatMode, IChatModes, IChatModeService } from '../../../common/chatModes.js';
 import { IChatFollowup, IChatPlanReview, IChatQuestionCarousel, IChatService, IChatToolInvocation } from '../../../common/chatService/chatService.js';
-import { IChatSessionProviderOptionGroup, IChatSessionProviderOptionItem, IChatSessionsService, isAgentHostTarget, isIChatSessionFileChange2, localChatSessionType, SessionType } from '../../../common/chatSessionsService.js';
+import { IChatSessionProviderOptionGroup, IChatSessionProviderOptionItem, IChatSessionsService, isAgentHostTarget, localChatSessionType, SessionType } from '../../../common/chatSessionsService.js';
 import { getStoredSelectedModel, storeSelectedModel } from '../../../common/chatSelectedModel.js';
 import { ChatAgentLocation, ChatConfiguration, ChatModeKind, ChatPermissionLevel, isChatPermissionLevel } from '../../../common/constants.js';
-import { isAutoApprovePolicyRestricted, isAutoApproveValuePolicyRestricted } from '../../../common/agentHostConfigPolicy.js';
 import { IChatEditingSession, IModifiedFileEntry, ModifiedFileEntryState } from '../../../common/editing/chatEditingService.js';
 import { ILanguageModelChatMetadata, ILanguageModelChatMetadataAndIdentifier, ILanguageModelsService } from '../../../common/languageModels.js';
 import { ChatInputModelSelectionController, IChatInputModelSelectionRuntime } from './chatInputModelSelectionController.js';
@@ -122,22 +118,16 @@ import { IDictationOnboardingService } from '../../speechToText/dictationOnboard
 import { isDictationActiveForEditor, notifyDictationSubmitted, onDidChangeDictationEditor } from '../../speechToText/dictationSession.js';
 import { VoiceModeActionViewItem } from '../../voiceClient/voiceModeActionViewItem.js';
 import { IVoiceSessionController } from '../../voiceClient/voiceSessionController.js';
-import { AgentSessionProviders, AgentSessionTarget, getAgentSessionProvider } from '../../agentSessions/agentSessions.js';
-import { getAgentSessionPullRequestContextValue } from '../../agentSessions/agentSessionsModel.js';
-import { IAgentSessionsService } from '../../agentSessions/agentSessionsService.js';
+type AgentSessionTarget = string;
 import { ChatAttachmentModel } from '../../attachments/chatAttachmentModel.js';
 import { IChatAttachmentWidgetRegistry } from '../../attachments/chatAttachmentWidgetRegistry.js';
 import { DefaultChatAttachmentWidget, ElementChatAttachmentWidget, FileAttachmentWidget, ImageAttachmentWidget, BrowserViewAttachmentWidget, NotebookCellOutputChatAttachmentWidget, PasteAttachmentWidget, PromptFileAttachmentWidget, PromptTextAttachmentWidget, SCMHistoryItemAttachmentWidget, SCMHistoryItemChangeAttachmentWidget, SCMHistoryItemChangeRangeAttachmentWidget, TerminalCommandAttachmentWidget, ToolSetOrToolItemAttachmentWidget } from '../../attachments/chatAttachmentWidgets.js';
 import { ChatImplicitContexts } from '../../attachments/chatImplicitContext.js';
 import { ImplicitContextAttachmentWidget } from '../../attachments/implicitContextAttachment.js';
-import { IChatWidget, IChatWidgetService, IChatWidgetViewModelChangeEvent, ISessionTypePickerDelegate, isIChatResourceViewContext, isIChatViewViewContext, IWorkspacePickerDelegate } from '../../chat.js';
+import { IChatWidget, IChatWidgetService, IChatWidgetViewModelChangeEvent, ISessionTypePickerDelegate, IWorkspacePickerDelegate } from '../../chat.js';
 import { ChatEditingShowChangesAction, ViewPreviousEditsAction } from '../../chatEditing/chatEditingActions.js';
 import { resizeImage } from '../../chatImageUtils.js';
 import { ChatSessionPickerActionItem, IChatSessionPickerDelegate } from '../../chatSessions/chatSessionPickerActionItem.js';
-import { AgentHostChatInputPicker, AgentHostChatInputPickerActionViewItem } from '../../agentSessions/agentHost/agentHostChatInputPicker.js';
-import { getAgentHostPickerProperty, OpenAgentHostAutoApprovePickerAction, OpenAgentHostCodexApprovalsPickerAction, OpenAgentHostModePickerAction, OpenAgentHostPermissionModePickerAction, OpenAgentHostFolderPickerAction } from '../../agentSessions/agentHost/agentHostChatInputPicker.contribution.js';
-import { AgentHostGenericConfigChips } from '../../agentSessions/agentHost/agentHostGenericConfigChips.js';
-import { AgentHostFolderPickerActionItem } from '../../agentSessions/agentHost/agentHostFolderPickerActionItem.js';
 import { IChatPhoneInputPresenter, MobileChatInputCombinedPickerActionItem } from './chatPhoneInputPresenter.js';
 import { IChatContextService } from '../../contextContrib/chatContextService.js';
 import { IDisposableReference } from '../chatContentParts/chatCollections.js';
@@ -166,11 +156,9 @@ import { chatInputStackClass, chatInputStackSlotClass, chatInputSurfaceStackClas
 import { ChatSelectedTools } from './chatSelectedTools.js';
 import { ChatPetAchievementIds, didExplicitlySwitchChatPetModel } from '../../chatPetAchievements.js';
 import { IChatPetService } from '../../chatPetService.js';
-import { DelegationSessionPickerActionItem } from './delegationSessionPickerActionItem.js';
 import { ModelPickerActionItem, IModelPickerDelegate, IModelPickerPresentationOptions } from './modelPicker/modelPickerActionItem.js';
 import { IModePickerDelegate, isModeConsideredBuiltIn, ModePickerActionItem } from './modePickerActionItem.js';
 import { IPermissionPickerDelegate, PermissionPickerActionItem } from './permissionPickerActionItem.js';
-import { SessionTypePickerActionItem } from './sessionTargetPickerActionItem.js';
 import { WorkspacePickerActionItem } from './workspacePickerActionItem.js';
 import { ChatContextUsageWidget } from '../../widgetHosts/viewPane/chatContextUsageWidget.js';
 import { Target } from '../../../common/promptSyntax/promptTypes.js';
@@ -351,18 +339,6 @@ export interface IChatInputPartOptions {
 
 export interface IWorkingSetEntry {
 	uri: URI;
-}
-
-export const enum ChatWidgetLocation {
-	SidebarLeft = 'sidebarLeft',
-	SidebarRight = 'sidebarRight',
-	Panel = 'panel',
-	Editor = 'editor',
-}
-
-export interface IChatWidgetLocationInfo {
-	readonly location: ChatWidgetLocation;
-	readonly isMaximized: boolean;
 }
 
 export interface IChatModeChangeEvent {
@@ -695,8 +671,6 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 	private permissionWidget: PermissionPickerActionItem | undefined;
 	private readonly permissionWidgetDisposeListener = this._register(new MutableDisposable<IDisposable>());
 	private readonly overflowPickerWidget = this._register(new MutableDisposable<IDisposable>());
-	private sessionTargetWidget: SessionTypePickerActionItem | undefined;
-	private delegationWidget: DelegationSessionPickerActionItem | undefined;
 	private readonly chatSessionPickerWidgets = this._register(new DisposableMap<string, ChatSessionPickerActionItem>());
 	private chatSessionPickerContainer: HTMLElement | undefined;
 	private _lastSessionPickerAction: MenuItemAction | undefined;
@@ -904,14 +878,10 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 		@ILanguageModelToolsService private readonly toolService: ILanguageModelToolsService,
 		@IChatSessionsService private readonly chatSessionsService: IChatSessionsService,
 		@IChatContextService private readonly chatContextService: IChatContextService,
-		@IAgentSessionsService private readonly agentSessionsService: IAgentSessionsService,
 		@IChatSpeechToTextService private readonly speechToTextService: IChatSpeechToTextService,
 		@IDictationOnboardingService private readonly dictationOnboardingService: IDictationOnboardingService,
 		@IChatInputNoticeHubService private readonly chatInputNoticeHubService: IChatInputNoticeHubService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
-		@ISCMService private readonly scmService: ISCMService,
-		@IWorkbenchLayoutService private readonly layoutService: IWorkbenchLayoutService,
-		@IViewDescriptorService private readonly viewDescriptorService: IViewDescriptorService,
 		@IChatAttachmentWidgetRegistry private readonly _chatAttachmentWidgetRegistry: IChatAttachmentWidgetRegistry,
 		@IChatInputNotificationService private readonly chatInputNotificationService: IChatInputNotificationService,
 		@IChatPhoneInputPresenter private readonly chatPhoneInputPresenter: IChatPhoneInputPresenter,
@@ -1515,18 +1485,13 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 	}
 
 	private getPermittedPermissionLevel(level: ChatPermissionLevel): ChatPermissionLevel {
-		if (isAutoApproveValuePolicyRestricted(level, isAutoApprovePolicyRestricted(this.configurationService))) {
-			return ChatPermissionLevel.Default;
-		}
 		return level;
 	}
 
 	public openSessionTargetPicker(): void {
-		this.sessionTargetWidget?.show();
 	}
 
 	public openDelegationPicker(): void {
-		this.delegationWidget?.show();
 	}
 
 	public openChatSessionPicker(): void {
@@ -2780,19 +2745,6 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 
 	}
 
-	private hasWorkspaceScmRepository(): boolean {
-		const folders = this.workspaceContextService.getWorkspace().folders;
-		if (folders.length === 0) {
-			return false;
-		}
-		for (const repo of this.scmService.repositories) {
-			if (repo.provider.rootUri && this.workspaceContextService.getWorkspaceFolder(repo.provider.rootUri)) {
-				return true;
-			}
-		}
-		return false;
-	}
-
 	private getEffectiveSessionType(sessionResource: URI | undefined): string | undefined {
 		return this.options.sessionTypePickerDelegate?.getActiveSessionProvider?.() ?? (sessionResource ? getChatSessionType(sessionResource) : undefined);
 	}
@@ -2838,7 +2790,7 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 	private getActiveSessionTypeForDelegation(): AgentSessionTarget | undefined {
 		const sessionResource = this._widget?.viewModel?.sessionResource;
 		// TODO: Remove hardcoded providers from core
-		return sessionResource ? (getAgentSessionProvider(sessionResource) ?? getChatSessionType(sessionResource)) : undefined;
+		return sessionResource ? getChatSessionType(sessionResource) : undefined;
 	}
 
 	/**
@@ -3441,7 +3393,6 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 
 		const hoverDelegate = this._register(createInstantHoverDelegate());
 
-		const { location } = this.getWidgetLocationInfo(widget);
 		const focusedWidget = observableFromEvent(this, this.chatWidgetService.onDidChangeFocusedSession, () => this.chatWidgetService.lastFocusedWidget);
 		const isVoiceInputActive = derived(this, reader => focusedWidget.read(reader) === widget);
 		const isVoiceSessionActive = derived(this, reader => {
@@ -3565,8 +3516,8 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 				// single chip that opens a unified bottom sheet. The Mode
 				// action is hidden so its slot is not duplicated; the chip
 				// (mounted on the Model action's slot) opens both pickers
-				// from one tap. Mirrors the empty new-chat experience in
-				// `vs/sessions` (see `MobileChatInputConfigPicker`).
+				// from one tap. Mirrors the empty new-chat experience
+				// (see `MobileChatInputConfigPicker`).
 				if (this.chatPhoneInputPresenter.enabled.get()) {
 					if (action.id === OpenModelPickerAction.ID && action instanceof MenuItemAction) {
 						if (!this._currentLanguageModel.get()) {
@@ -3595,31 +3546,6 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 					const createPicker = () => this.instantiationService.createInstance(ModePickerActionItem, action, delegate, getInputPickerOptions(action.id));
 					inputOverflowPickerHandlers.set(action.id, anchor => showOverflowPicker(createPicker, anchor));
 					return this.modeWidget = createPicker();
-				} else if ((action.id === OpenSessionTargetPickerAction.ID || action.id === OpenDelegationPickerAction.ID) && action instanceof MenuItemAction) {
-					// Use provided delegate if available, otherwise create default delegate
-					const delegate: ISessionTypePickerDelegate = this.options.sessionTypePickerDelegate ?? {
-						getActiveSessionProvider: () => {
-							return this.getActiveSessionTypeForDelegation();
-						},
-						getPendingDelegationTarget: () => {
-							return this._pendingDelegationTarget;
-						},
-						setPendingDelegationTarget: (provider: AgentSessionTarget) => {
-							this.setPendingDelegationTarget(provider);
-						},
-						hasGitRepository: () => this.hasWorkspaceScmRepository(),
-					};
-					const isWelcomeViewMode = !!this.options.sessionTypePickerDelegate?.setActiveSessionProvider;
-					const Picker = (action.id === OpenSessionTargetPickerAction.ID || isWelcomeViewMode) ? SessionTypePickerActionItem : DelegationSessionPickerActionItem;
-					const createPicker = () => this.instantiationService.createInstance(Picker, action, location === ChatWidgetLocation.Editor ? 'editor' : 'sidebar', delegate, getInputPickerOptions(action.id));
-					inputOverflowPickerHandlers.set(action.id, anchor => showOverflowPicker(createPicker, anchor));
-					const picker = createPicker();
-					if (picker instanceof DelegationSessionPickerActionItem) {
-						this.delegationWidget = picker;
-					} else {
-						this.sessionTargetWidget = picker;
-					}
-					return picker;
 				} else if (action.id === ChatSessionPrimaryPickerAction.ID && action instanceof MenuItemAction) {
 					const createPicker = () => {
 						// Cloud sessions render their option-group pickers (e.g. branch) on the primary toolbar
@@ -3751,35 +3677,9 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 			[OpenWorkspacePickerAction.ID, 22],
 			[OpenPermissionPickerAction.ID, 22],
 			[ChatSessionPrimaryPickerAction.ID, 22],
-			[OpenAgentHostModePickerAction.ID, 22],
-			['sessions.agentHost.runningSessionModePicker', 22],
-			['sessions.agentHost.runningSessionConfigPicker', 22],
-			['sessions.agentHost.runningSessionPermissionModePicker', 22],
-			['sessions.agentHost.runningSessionCodexApprovalsPicker', 22],
-			[OpenAgentHostAutoApprovePickerAction.ID, 22],
-			[OpenAgentHostPermissionModePickerAction.ID, 22],
-			[OpenAgentHostCodexApprovalsPickerAction.ID, 22],
-			[OpenAgentHostFolderPickerAction.ID, 22],
 			['sessions.tunnelHost.toggleSharing', 16],
 		]);
-		// Direct-rendered chip lane for agent-host config properties that
-		// are advertised by the agent's schema but not handled by a
-		// dedicated `MenuId.ChatInputSecondary` action. Sits as a sibling
-		// of the content-sized secondary toolbar.
-		const genericChipsContainer = dom.$('.chat-secondary-generic-chips');
-		const genericChipsLane = this._register(this.instantiationService.createInstance(
-			AgentHostGenericConfigChips,
-			widget,
-		));
-		genericChipsLane.render(genericChipsContainer);
-		const getSecondaryToolbarAvailableWidth = (): number => {
-			const laneWidth = responsivePickerContainer.getBoundingClientRect().width;
-			if (genericChipsContainer.parentElement !== responsivePickerContainer || genericChipsContainer.getClientRects().length === 0) {
-				return laneWidth;
-			}
-			const gap = Number.parseFloat(dom.getWindow(responsivePickerContainer).getComputedStyle(responsivePickerContainer).columnGap) || 0;
-			return Math.max(0, laneWidth - genericChipsContainer.getBoundingClientRect().width - gap);
-		};
+		const getSecondaryToolbarAvailableWidth = (): number => responsivePickerContainer.getBoundingClientRect().width;
 		this.secondaryToolbar = this._register(this.instantiationService.createInstance(MenuWorkbenchToolBar, responsivePickerContainer, MenuId.ChatInputSecondary, {
 			telemetrySource: this.options.menus.telemetrySource,
 			menuOptions: { shouldForwardArgs: true },
@@ -3797,37 +3697,12 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 				getOverflowAction: (action, getAnchor) => getOverflowAction(action, MenuId.ChatInputSecondary, secondaryOverflowPickerHandlers, getAnchor, responsivePickerContainer, this.options.secondaryToolbarOverflowActionHandler),
 			},
 			actionViewItemProvider: (action, options) => {
-				const agentHostPickerProperty = getAgentHostPickerProperty(action.id);
 				const customSecondaryItem = this.options.secondaryToolbarActionViewItemProvider?.(action, options);
 				if (customSecondaryItem) {
 					getCompactState(secondaryPickerCompactStates, action.id);
 					return customSecondaryItem;
 				}
-				if ((action.id === OpenSessionTargetPickerAction.ID || action.id === OpenDelegationPickerAction.ID) && action instanceof MenuItemAction) {
-					const delegate: ISessionTypePickerDelegate = this.options.sessionTypePickerDelegate ?? {
-						getActiveSessionProvider: () => {
-							return this.getActiveSessionTypeForDelegation();
-						},
-						getPendingDelegationTarget: () => {
-							return this._pendingDelegationTarget;
-						},
-						setPendingDelegationTarget: (provider: AgentSessionTarget) => {
-							this.setPendingDelegationTarget(provider);
-						},
-						hasGitRepository: () => this.hasWorkspaceScmRepository(),
-					};
-					const isWelcomeViewMode = !!this.options.sessionTypePickerDelegate?.setActiveSessionProvider;
-					const Picker = (action.id === OpenSessionTargetPickerAction.ID || isWelcomeViewMode) ? SessionTypePickerActionItem : DelegationSessionPickerActionItem;
-					const createPicker = () => this.instantiationService.createInstance(Picker, action, location === ChatWidgetLocation.Editor ? 'editor' : 'sidebar', delegate, getSecondaryPickerOptions(action.id));
-					secondaryOverflowPickerHandlers.set(action.id, anchor => showOverflowPicker(createPicker, anchor));
-					const picker = createPicker();
-					if (picker instanceof DelegationSessionPickerActionItem) {
-						this.delegationWidget = picker;
-					} else {
-						this.sessionTargetWidget = picker;
-					}
-					return picker;
-				} else if (action.id === OpenWorkspacePickerAction.ID && action instanceof MenuItemAction) {
+				if (action.id === OpenWorkspacePickerAction.ID && action instanceof MenuItemAction) {
 					const workspacePickerDelegate = this.options.workspacePickerDelegate;
 					if (this.workspaceContextService.getWorkbenchState() === WorkbenchState.EMPTY && workspacePickerDelegate) {
 						const createPicker = () => this.instantiationService.createInstance(WorkspacePickerActionItem, action, workspacePickerDelegate, getSecondaryPickerOptions(action.id));
@@ -3883,25 +3758,6 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 						this.permissionWidgetDisposeListener.clear();
 					});
 					return widget;
-				} else if (agentHostPickerProperty && action instanceof MenuItemAction) {
-					if (this.options.isSessionsWindow) {
-						return new HiddenActionViewItem(action);
-					}
-					getCompactState(secondaryPickerCompactStates, action.id);
-					const createPicker = () => this.instantiationService.createInstance(AgentHostChatInputPicker, widget, agentHostPickerProperty);
-					secondaryOverflowPickerHandlers.set(action.id, anchor => {
-						const picker = createPicker();
-						this.overflowPickerWidget.value = picker;
-						picker.show(anchor);
-					});
-					return new AgentHostChatInputPickerActionViewItem(action, createPicker());
-				} else if (action.id === OpenAgentHostFolderPickerAction.ID && action instanceof MenuItemAction) {
-					if (this.options.isSessionsWindow) {
-						return new HiddenActionViewItem(action);
-					}
-					const createPicker = () => this.instantiationService.createInstance(AgentHostFolderPickerActionItem, action, widget, getSecondaryPickerOptions(action.id));
-					secondaryOverflowPickerHandlers.set(action.id, anchor => showOverflowPicker(createPicker, anchor));
-					return createPicker();
 				} else if (action.id === ChatSessionPrimaryPickerAction.ID && action instanceof MenuItemAction) {
 					const createPicker = () => {
 						const widgets = this.createChatSessionPickerWidgets(action, getSecondaryPickerOptions(action.id));
@@ -3915,7 +3771,6 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 		}));
 		this.secondaryToolbar.getElement().classList.add('chat-secondary-input-toolbar');
 		this.secondaryToolbar.context = { widget } satisfies IChatExecuteActionContext;
-		dom.append(responsivePickerContainer, genericChipsContainer);
 		this._register(this.secondaryToolbar.onDidChangeMenuItems(() => {
 			// Update container reference for the pickers when the secondary toolbar hosts one.
 			// Only assign when found so we don't overwrite a valid primary container reference
@@ -3946,15 +3801,7 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 		}));
 
 		this._secondaryPickerResponsiveLayout = this._register(new ChatInputPickerResponsiveLayout('ChatInputPart.secondaryPicker', responsivePickerContainer, {
-			getItems: () => [
-				...getToolbarPickerResponsiveItems(this.secondaryToolbar, secondaryPickerCompactStates),
-				...genericChipsLane.getCompactableElements()
-					.map(element => ({
-						element,
-						isCompact: () => element.classList.contains('compact-picker'),
-						setCompact: (compact: boolean) => element.classList.toggle('compact-picker', compact),
-					})),
-			],
+			getItems: () => getToolbarPickerResponsiveItems(this.secondaryToolbar, secondaryPickerCompactStates),
 			hasOverflow: () => this.secondaryToolbar.hasOverflow(),
 			relayout: () => this.secondaryToolbar.relayout(),
 		}));
@@ -4644,7 +4491,7 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 		const modifiedEntries = derivedOpts<IModifiedFileEntry[]>({ equalsFn: arraysEqual }, r => {
 			// Background chat sessions render the working set based on the session files, and not the editing session
 			const sessionResource = chatEditingSession?.chatSessionResource ?? this._widget?.viewModel?.model.sessionResource;
-			if (sessionResource && getChatSessionType(sessionResource) === AgentSessionProviders.Background) {
+			if (sessionResource && getChatSessionType(sessionResource) === SessionType.CopilotCLI) {
 				return [];
 			}
 
@@ -4690,34 +4537,7 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 			return entries;
 		});
 
-		const sessionFileChanges = observableFromEvent(
-			this,
-			this.agentSessionsService.model.onDidChangeSessions,
-			() => {
-				const sessionResource = this._widget?.viewModel?.model?.sessionResource;
-				if (!sessionResource) {
-					return Iterable.empty();
-				}
-				const model = this.agentSessionsService.getSession(sessionResource);
-				return model?.changes instanceof Array ? model.changes : Iterable.empty();
-			},
-		);
-
-		const sessionFiles = derived(reader =>
-			sessionFileChanges.read(reader).map((entry): IChatCollapsibleListItem => ({
-				reference: isIChatSessionFileChange2(entry)
-					? entry.modifiedUri ?? entry.uri
-					: entry.modifiedUri,
-				state: ModifiedFileEntryState.Accepted,
-				kind: 'reference',
-				options: {
-					diffMeta: { added: entry.insertions, removed: entry.deletions },
-					isDeletion: entry.modifiedUri === undefined,
-					originalUri: entry.originalUri,
-					status: undefined
-				}
-			}))
-		);
+		const sessionFiles = derived(_reader => [] as IChatCollapsibleListItem[]);
 
 		const shouldRender = derived(reader =>
 			editSessionEntries.read(reader).length > 0 || sessionFiles.read(reader).length > 0);
@@ -4773,16 +4593,7 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 		if (sessionResource) {
 			scopedContextKeyService.createKey(ChatContextKeys.agentSessionType.key, getChatSessionType(sessionResource));
 
-			// Metadata can arrive after first render, so track it rather than sampling once.
-			const sessionPullRequest = observableFromEvent(
-				this,
-				this.agentSessionsService.model.onDidChangeSessions,
-				() => {
-					const session = this.agentSessionsService.getSession(sessionResource);
-					return session ? getAgentSessionPullRequestContextValue(session) : '';
-				},
-			);
-			this._chatEditsActionsDisposables.add(bindContextKey(ChatContextKeys.agentSessionPullRequest, scopedContextKeyService, r => sessionPullRequest.read(r)));
+			this._chatEditsActionsDisposables.add(bindContextKey(ChatContextKeys.agentSessionPullRequest, scopedContextKeyService, () => ''));
 		}
 
 		this._chatEditsActionsDisposables.add(bindContextKey(ChatContextKeys.hasAgentSessionChanges, scopedContextKeyService, r => !!sessionEntriesObs.read(r)?.length));
@@ -4836,7 +4647,7 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 				telemetrySource: this.options.menus.telemetrySource,
 				small: true,
 				menuOptions: sessionResource ? (isSessionMenu ? {
-					args: [sessionResource, this.agentSessionsService.getSession(sessionResource)?.metadata],
+					args: [sessionResource],
 				} : {
 					arg: {
 						$mid: MarshalledId.ChatViewContext,
@@ -5165,47 +4976,6 @@ export class ChatInputPart extends Disposable implements IHistoryNavigationWidge
 			toolbarsWidth: this.options.renderStyle === 'compact' ? getToolbarsWidthCompact() : 0,
 			sideToolbarWidth: inputSideToolbarWidth > 0 ? inputSideToolbarWidth + 4 /*gap*/ : 0,
 		};
-	}
-
-	/**
-	 * Gets the location of the chat widget and whether that location is maximized.
-	 */
-	private getWidgetLocationInfo(widget: IChatWidget): IChatWidgetLocationInfo {
-		// Editor context (quick chat, inline chat, etc.)
-		if (isIChatResourceViewContext(widget.viewContext)) {
-			return { location: ChatWidgetLocation.Editor, isMaximized: false };
-		}
-
-		// View context - determine actual location from view descriptor service
-		if (isIChatViewViewContext(widget.viewContext)) {
-			const viewLocation = this.viewDescriptorService.getViewLocationById(widget.viewContext.viewId);
-			const sideBarPosition = this.layoutService.getSideBarPosition();
-
-			switch (viewLocation) {
-				case ViewContainerLocation.Panel:
-					return {
-						location: ChatWidgetLocation.Panel,
-						isMaximized: this.layoutService.isPanelMaximized(),
-					};
-				case ViewContainerLocation.AuxiliaryBar:
-					// AuxiliaryBar is on the opposite side of the primary sidebar
-					return {
-						location: sideBarPosition === Position.LEFT ? ChatWidgetLocation.SidebarRight : ChatWidgetLocation.SidebarLeft,
-						isMaximized: this.layoutService.isAuxiliaryBarMaximized(),
-					};
-				case ViewContainerLocation.Sidebar:
-				default:
-					// Primary sidebar follows its configured position
-					// Note: Primary sidebar cannot be maximized, so always false
-					return {
-						location: sideBarPosition === Position.LEFT ? ChatWidgetLocation.SidebarLeft : ChatWidgetLocation.SidebarRight,
-						isMaximized: false,
-					};
-			}
-		}
-
-		// Fallback for unknown contexts
-		return { location: ChatWidgetLocation.Editor, isMaximized: false };
 	}
 
 	private getDefaultScrollbarOptions(): IEditorScrollbarOptions {
